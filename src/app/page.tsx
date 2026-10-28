@@ -1,115 +1,65 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  ArrowDownRight,
+  BrainCircuit,
+  Receipt,
+  Sparkles,
+  Wallet,
+  Info,
+} from "lucide-react";
 
-type SpendRow = {
-  id: string;
-  digest: string;
-  at: string;
-  amount: number;
-  symbol: string;
-  to: string;
-  category: string;
-  original: string | null;
-  by: "rule" | "user" | "model";
-  confidence: number;
-  label?: string;
-  paid?: string;
-  corrected: boolean;
-};
+import { TopNav } from "@/components/dashboard/top-nav";
+import { SummaryCard } from "@/components/dashboard/summary-card";
+import { TransactionRow } from "@/components/dashboard/transaction-row";
+import { LearnedRuleItem } from "@/components/dashboard/learned-rule-item";
+import { EmptyState } from "@/components/dashboard/empty-state";
+import { AgentPanel } from "@/components/dashboard/agent-panel";
+import { CorrectDialog } from "@/components/dashboard/correct-dialog";
+import { RuleSkeleton, TransactionSkeleton } from "@/components/ui/skeleton";
+import { Card } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { formatAmount, pct, shortAddress } from "@/lib/utils";
+import type { Balance, Ledger, SpendRow } from "@/lib/types";
 
-type Ledger = {
-  wallet: string;
-  spends: SpendRow[];
-  pays: Array<{ digest: string; amount: number; symbol: string; to: string; for: string; at: string }>;
-  rules: Array<{ target: string; category: string; label?: string; evidence: number; at: string }>;
-  budgets: Array<{ category: string; monthly: number; symbol: string }>;
-  totals: { rows: number; corrected: number; uncategorized: number; learnedRules: number; memories: number };
-  months: Array<{
-    month: string;
-    total: number;
-    symbol: string;
-    byCategory: Array<{ category: string; amount: number; share: number }>;
-  }>;
-  learning: {
-    labelled: number;
-    heldOut: number;
-    before: number;
-    after: number;
-    correctBefore: number;
-    correctAfter: number;
-  };
-};
-
-type TatumState = { credits: number; calls: number; cap: number; remaining: number };
-
-const CATEGORIES = [
-  "Food",
-  "Transport",
-  "Groceries",
-  "Subscriptions",
-  "Shopping",
-  "Bills",
-  "Fees",
-  "Transfers",
-  "Uncategorized",
-];
-
-const CAT_COLOR: Record<string, string> = {
-  Food: "#e0a63a",
-  Transport: "#4ea3ff",
-  Groceries: "#35c77a",
-  Subscriptions: "#b07cff",
-  Shopping: "#ff7ab8",
-  Bills: "#ff8a5c",
-  Fees: "#6b7385",
-  Transfers: "#5fd0c5",
-  Uncategorized: "#5a6270",
-};
-
-const short = (a: string) => (a.length > 14 ? `${a.slice(0, 6)}…${a.slice(-4)}` : a);
-const pct = (x: number) => `${Math.round(x * 100)}%`;
-
-function fmt(amount: number, symbol: string) {
-  const dp = amount >= 1 ? 2 : amount >= 0.01 ? 4 : 6;
-  return `${amount.toFixed(dp)} ${symbol}`;
-}
-
-function when(iso: string) {
-  if (!iso) return "—";
-  const d = new Date(iso);
-  return d.toLocaleDateString("en-GB", { day: "2-digit", month: "short" }) +
-    " " + d.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
-}
+const DEMO_WALLET = "0x8fbd10bdc30b5a998bdfbf26d7bae87314b4bdeaa4be53dbbfc5ca88f84e37ca";
 
 export default function Page() {
   const [input, setInput] = useState("");
   const [wallet, setWallet] = useState<string | null>(null);
   const [ledger, setLedger] = useState<Ledger | null>(null);
-  const [tatum, setTatum] = useState<TatumState | null>(null);
+  const [balances, setBalances] = useState<Balance[]>([]);
   const [busy, setBusy] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-  const [open, setOpen] = useState<string | null>(null);
+  const [target, setTarget] = useState<SpendRow | null>(null);
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [loading, setLoading] = useState(true);
 
   const load = useCallback(async (w: string) => {
-    const res = await fetch(`/api/ledger?wallet=${w}`, { cache: "no-store" });
-    const json = await res.json();
-    if (!res.ok) throw new Error(json.error ?? "ledger failed");
-    setLedger(json.ledger);
-    setTatum(json.tatum);
-    setWallet(w);
+    setLoading(true);
+    try {
+      const res = await fetch(`/api/ledger?wallet=${w}`, { cache: "no-store" });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error ?? "ledger failed");
+      setLedger(json.ledger);
+      setBalances(json.balances ?? []);
+      setWallet(w);
+    } finally {
+      // A slow recall must not look like an empty account.
+      setLoading(false);
+    }
   }, []);
 
   useEffect(() => {
-    const fromUrl = new URLSearchParams(window.location.search).get("wallet");
-    if (fromUrl) {
-      setInput(fromUrl);
-      load(fromUrl.toLowerCase()).catch((e) => setNotice(String(e.message ?? e)));
-    }
+    const fromUrl = new URLSearchParams(window.location.search).get("wallet") ?? DEMO_WALLET;
+    setInput(fromUrl);
+    load(fromUrl.toLowerCase()).catch((e) => setNotice(String(e.message ?? e)));
   }, [load]);
 
-  const sync = async () => {
-    const w = input.trim().toLowerCase();
+  const sync = async (raw?: string) => {
+    const w = (raw ?? input).trim().toLowerCase();
     if (!/^0x[0-9a-f]{64}$/.test(w)) {
       setNotice("That is not a Sui address. It should start with 0x and be 64 hex characters.");
       return;
@@ -125,13 +75,16 @@ export default function Page() {
       const json = await res.json();
       if (!res.ok) throw new Error(json.error ?? "sync failed");
       await load(w);
-      const bits = [
-        `${json.written} new ${json.written === 1 ? "line" : "lines"}`,
-        `${json.pages} Tatum ${json.pages === 1 ? "page" : "pages"}`,
-        json.skipped ? `${json.skipped} already in memory` : null,
-        json.error ? `stopped: ${json.error}` : null,
-      ].filter(Boolean);
-      setNotice(bits.join(" · "));
+      setNotice(
+        [
+          `${json.written} new ${json.written === 1 ? "line" : "lines"}`,
+          `${json.pages} Tatum ${json.pages === 1 ? "page" : "pages"}`,
+          json.skipped ? `${json.skipped} already in memory` : null,
+          json.error ? `stopped: ${json.error}` : null,
+        ]
+          .filter(Boolean)
+          .join(" · "),
+      );
       window.history.replaceState(null, "", `?wallet=${w}`);
     } catch (e) {
       setNotice(e instanceof Error ? e.message : String(e));
@@ -140,53 +93,24 @@ export default function Page() {
     }
   };
 
-  const fix = async (row: SpendRow, category: string, label?: string) => {
-    if (!wallet) return;
-    setBusy(row.id);
-    setNotice(null);
+  const save = async (category: string, label?: string) => {
+    if (!wallet || !target) return;
+    setBusy(target.id);
     try {
       const res = await fetch("/api/fix", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ wallet, id: row.id, category, label }),
+        body: JSON.stringify({ wallet, id: target.id, category, label }),
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error ?? "correction failed");
+      setDialogOpen(false);
       await load(wallet);
-      setOpen(null);
-      setNotice(`Remembered. Rule evidence ${json.evidence} — future payments to this merchant inherit "${category}".`);
-    } catch (e) {
-      setNotice(e instanceof Error ? e.message : String(e));
-    } finally {
-      setBusy(null);
-    }
-  };
-
-  const askAgent = async (row: SpendRow) => {
-    if (!wallet) return;
-    setBusy(row.id);
-    setNotice(null);
-    try {
-      const res = await fetch("/api/agent", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ wallet, id: row.id }),
-      });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error ?? "agent failed");
-      await load(wallet);
-      if (json.status === "labelled") {
-        setNotice(
-          `Agent paid 0.01 USDC on Sui and learned "${json.profile.label}" (${json.profile.category}). ` +
-            (json.digest ? `Settlement ${json.digest.slice(0, 12)}…` : ""),
-        );
-      } else if (json.status === "unfunded") {
-        setNotice("Agent wallet has no USDC on Sui yet, so no payment was attempted and nothing was written.");
-      } else if (json.status === "unknown") {
-        setNotice("The merchant directory has no label for this address yet — the agent did not pay for an empty answer.");
-      } else {
-        setNotice(json.error ?? "agent could not finish");
-      }
+      setNotice(
+        json.ruleBlob
+          ? `Remembered. Rule evidence ${json.evidence} — future payments to this merchant inherit “${category}”.`
+          : `Remembered as a one-off correction for this line.`,
+      );
     } catch (e) {
       setNotice(e instanceof Error ? e.message : String(e));
     } finally {
@@ -195,332 +119,272 @@ export default function Page() {
   };
 
   const month = ledger?.months[0];
-  const maxCat = useMemo(
-    () => (month ? Math.max(...month.byCategory.map((c) => c.amount), 0.000001) : 1),
-    [month],
-  );
+  const usdc = balances.find((b) => b.symbol === "USDC");
+  const sui = balances.find((b) => b.symbol === "SUI");
+  const balanceValue = usdc ? usdc.amount.toFixed(2) : sui ? sui.amount.toFixed(2) : "0.00";
+  const balanceSymbol = usdc ? "USDC" : sui ? "SUI" : "USDC";
+
+  const coveredByRule = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const s of ledger?.spends ?? []) {
+      if (s.by === "rule" && !s.corrected) map.set(s.to, (map.get(s.to) ?? 0) + 1);
+    }
+    return map;
+  }, [ledger]);
+
+  const maxEvidence = Math.max(1, ...(ledger?.rules.map((r) => r.evidence) ?? [1]));
 
   return (
-    <main className="mx-auto w-full max-w-6xl px-4 py-8 sm:px-6 lg:py-12">
-      <header className="mb-8">
-        <div className="flex items-baseline gap-3">
-          <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">RecallSpend</h1>
-          <span className="chip mono text-[10px]" style={{ color: "#9d8cff", borderColor: "#2c2745" }}>
-            SUI · MAINNET
-          </span>
-        </div>
-        <p className="mt-2 max-w-2xl text-sm leading-relaxed" style={{ color: "var(--muted)" }}>
-          A spend tracker with no database. Your ledger, your merchant rules and your budgets are
-          lines in Walrus Memory, so a correction made once stays made — and an agent can pay a
-          fraction of a cent on Sui to name a merchant it has never seen.
-        </p>
-      </header>
+    <div className="min-h-screen bg-zinc-50 text-zinc-900 dark:bg-zinc-950 dark:text-zinc-100">
+      <TopNav wallet={wallet} connecting={busy === "sync"} onConnect={() => sync()} />
 
-      <section className="panel mb-6 p-4">
-        <div className="flex flex-col gap-2 sm:flex-row">
-          <input
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && sync()}
-            placeholder="Paste a Sui wallet address (0x… 64 hex)"
-            className="mono flex-1"
-            spellCheck={false}
-          />
-          <button className="btn btn-primary" onClick={sync} disabled={busy === "sync"}>
-            {busy === "sync" ? "Reading chain…" : wallet ? "Sync again" : "Read my spending"}
-          </button>
+      <main className="mx-auto w-full max-w-7xl px-4 pb-24 pt-8 sm:px-6">
+        {/* Page heading + account control */}
+        <div className="mb-7 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <h1 className="text-2xl font-semibold tracking-tight">Overview</h1>
+            <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
+              {wallet
+                ? "Your ledger lives in Walrus Memory, not in our database."
+                : "Connect a Sui wallet to read its spending history."}
+            </p>
+          </div>
+
+          <div className="flex w-full max-w-md items-center gap-2">
+            <div className="relative flex-1">
+              <Wallet className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-zinc-400" />
+              <input
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && sync()}
+                placeholder="0x… Sui address"
+                spellCheck={false}
+                className="h-10 w-full rounded-lg border border-zinc-200 bg-white pl-9 pr-3 font-mono text-[12px] text-zinc-900 outline-none transition-colors placeholder:font-sans placeholder:text-zinc-400 focus:border-emerald-500 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100"
+              />
+            </div>
+            <Button variant="emerald" className="h-10" onClick={() => sync()} disabled={busy === "sync"}>
+              {busy === "sync" ? "Reading…" : "Sync"}
+            </Button>
+          </div>
         </div>
+
         {notice && (
-          <p className="mt-3 text-xs leading-relaxed" style={{ color: "var(--muted)" }}>
+          <div className="mb-6 flex items-start gap-2 rounded-xl border border-zinc-200 bg-white px-4 py-3 text-xs leading-relaxed text-zinc-600 dark:border-zinc-800 dark:bg-zinc-900/50 dark:text-zinc-400">
+            <Info className="mt-0.5 size-3.5 shrink-0 text-zinc-400" />
             {notice}
-          </p>
+          </div>
         )}
-        {wallet && (
-          <p className="mono mt-2 text-[11px]" style={{ color: "#5c6573" }}>
-            {wallet} · ledger read from Walrus Memory{tatum ? ` · ${tatum.credits} Tatum credits spent today` : ""}
-          </p>
-        )}
-      </section>
 
-      {!ledger && (
-        <section className="panel p-6 text-sm leading-relaxed" style={{ color: "var(--muted)" }}>
-          <p className="mb-3">
-            Nothing to show yet. Paste any Sui address above; the first read costs a handful of
-            Tatum credits, and every read after that costs none because the result is memory.
-          </p>
-          <p>
-            The wallet to try: <span className="mono" style={{ color: "var(--ink)" }}>
-              0x8fbd10bdc30b5a998bdfbf26d7bae87314b4bdeaa4be53dbbfc5ca88f84e37ca
-            </span>
-          </p>
-        </section>
-      )}
+        {/* Summary row */}
+        <div className="mb-6 grid gap-4 sm:grid-cols-3">
+          <SummaryCard
+            label="Balance"
+            value={loading ? "—" : `${balanceValue} ${balanceSymbol}`}
+            hint={loading ? "reading memory…" : wallet ? shortAddress(wallet, 8, 6) : "no wallet connected"}
+            icon={Wallet}
+            className="enter enter-1"
+          />
+          <SummaryCard
+            label="Monthly spend"
+            value={loading ? "—" : month ? formatAmount(month.total, month.symbol) : "—"}
+            hint={
+              month
+                ? `${ledger?.totals.rows ?? 0} lines · ${month.month}`
+                : "nothing recorded yet"
+            }
+            icon={ArrowDownRight}
+            className="enter enter-2"
+          />
+          <SummaryCard
+            label="Learned rules"
+            value={loading ? "—" : String(ledger?.totals.learnedRules ?? 0)}
+            hint={
+              ledger?.totals.corrected
+                ? `from ${ledger.totals.corrected} correction${ledger.totals.corrected === 1 ? "" : "s"}`
+                : "correct a payment to start"
+            }
+            icon={BrainCircuit}
+            tone="emerald"
+            className="enter enter-3"
+          />
+        </div>
 
-      {ledger && (
-        <>
-          <section className="mb-6 grid grid-cols-2 gap-3 lg:grid-cols-4">
-            <Stat label="Memories" value={String(ledger.totals.memories)} hint="Walrus, mainnet" />
-            <Stat label="Lines in ledger" value={String(ledger.totals.rows)} hint={`${ledger.totals.corrected} corrected by you`} />
-            <Stat
-              label="Generalisation"
-              value={`${pct(ledger.learning.before)} → ${pct(ledger.learning.after)}`}
-              hint={`${ledger.learning.heldOut} held-out lines · ${ledger.learning.labelled} corrected`}
-              accent
-            />
-            <Stat
-              label="Tatum credits left"
-              value={tatum ? String(tatum.remaining) : "—"}
-              hint={tatum ? `${tatum.calls} calls today · cap ${tatum.cap}` : ""}
-            />
-          </section>
+        <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_380px]">
+          {/* Feed */}
+          <Card className="overflow-hidden">
+            <div className="flex items-center justify-between border-b border-zinc-200/80 px-5 py-4 dark:border-zinc-800/80">
+              <div className="flex items-center gap-2">
+                <Receipt className="size-4 text-zinc-400" />
+                <h2 className="text-sm font-semibold">Transactions</h2>
+                <Badge variant="muted">{ledger?.spends.length ?? 0}</Badge>
+              </div>
+              <span className="text-xs text-zinc-500 dark:text-zinc-500">
+                {ledger?.totals.uncategorized ?? 0} uncategorised
+              </span>
+            </div>
 
-          <div className="grid gap-6 lg:grid-cols-[1.55fr_1fr]">
-            <section className="panel overflow-hidden">
-              <div className="flex items-center justify-between border-b px-4 py-3" style={{ borderColor: "var(--line)" }}>
-                <h2 className="text-sm font-medium">Spending</h2>
-                <span className="text-[11px]" style={{ color: "var(--muted)" }}>
-                  {ledger.totals.uncategorized} uncategorised
-                </span>
+            {loading ? (
+              <div className="divide-y divide-zinc-100 dark:divide-zinc-800/60">
+                {Array.from({ length: 6 }).map((_, i) => (
+                  <TransactionSkeleton key={i} />
+                ))}
+              </div>
+            ) : !ledger ? (
+              <div className="p-5">
+                <EmptyState
+                  icon={Wallet}
+                  title="No ledger yet"
+                  description="Paste a Sui address above and sync once. Every read after that is served from memory, so this page never spends Tatum credits."
+                >
+                  <Button variant="outline" onClick={() => setInput(DEMO_WALLET)}>
+                    Use the demo wallet
+                  </Button>
+                </EmptyState>
+              </div>
+            ) : ledger.spends.length === 0 ? (
+              <div className="p-5">
+                <EmptyState
+                  icon={Receipt}
+                  title="No outflows in this window"
+                  description="Only successful transactions are counted. Widen the window or try a wallet that has sent a payment."
+                />
+              </div>
+            ) : (
+              <div className="divide-y divide-zinc-100 dark:divide-zinc-800/60">
+                {ledger.spends.slice(0, 40).map((row) => (
+                  <TransactionRow
+                    key={row.id}
+                    row={row}
+                    busy={busy === row.id}
+                    onCorrect={(r) => {
+                      setTarget(r);
+                      setDialogOpen(true);
+                    }}
+                  />
+                ))}
+              </div>
+            )}
+          </Card>
+
+          {/* Rules sidebar */}
+          <div className="flex flex-col gap-6 lg:sticky lg:top-24">
+            <Card className="overflow-hidden">
+              <div className="border-b border-zinc-200/80 px-5 py-4 dark:border-zinc-800/80">
+                <div className="flex items-center gap-2">
+                  <span className="grid size-6 place-items-center rounded-md bg-emerald-50 text-emerald-600 dark:bg-emerald-500/10 dark:text-emerald-400">
+                    <Sparkles className="size-3.5" />
+                  </span>
+                  <h2 className="text-sm font-semibold">Learned rules</h2>
+                </div>
+                <p className="mt-1.5 text-xs leading-relaxed text-zinc-500 dark:text-zinc-400">
+                  Each rule is a line in Walrus Memory. Evidence is how many of your corrections
+                  agreed.
+                </p>
               </div>
 
-              {ledger.spends.length === 0 && (
-                <p className="p-4 text-sm" style={{ color: "var(--muted)" }}>
-                  No outflows in this window. Only successful transactions are counted.
-                </p>
-              )}
+              <div className="p-4">
+                {loading ? (
+                  <div className="space-y-2.5">
+                    {Array.from({ length: 3 }).map((_, i) => (
+                      <RuleSkeleton key={i} />
+                    ))}
+                  </div>
+                ) : ledger && ledger.rules.length > 0 ? (
+                  <div className="space-y-2.5">
+                    {ledger.rules.slice(0, 8).map((r) => (
+                      <LearnedRuleItem
+                        key={`${r.target}-${r.category}`}
+                        rule={r}
+                        covered={coveredByRule.get(r.target) ?? 0}
+                        maxEvidence={maxEvidence}
+                      />
+                    ))}
+                  </div>
+                ) : (
+                  <EmptyState
+                    icon={BrainCircuit}
+                    title="Nothing learned yet"
+                    description="Correct one payment and the rule appears here with the evidence behind it."
+                  />
+                )}
+              </div>
 
-              <ul>
-                {ledger.spends.slice(0, 40).map((row) => (
-                  <li key={row.id} className="border-b px-4 py-3 last:border-0" style={{ borderColor: "#14181e" }}>
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <span className="text-sm">{row.label ?? short(row.to)}</span>
-                          <span
-                            className="chip mono"
-                            style={{ color: CAT_COLOR[row.category] ?? "#8b93a1", borderColor: "var(--line)" }}
-                          >
-                            {row.category}
-                          </span>
-                          {row.corrected && row.original && (
-                            <span className="text-[10px]" style={{ color: "#5c6573" }}>
-                              was {row.original}
-                            </span>
-                          )}
-                          {row.by === "model" && (
-                            <span className="text-[10px]" style={{ color: "#9d8cff" }}>paid lookup</span>
-                          )}
-                        </div>
-                        <div className="mono mt-1 text-[11px]" style={{ color: "#5c6573" }}>
-                          {when(row.at)} · to {short(row.to)} ·{" "}
-                          {row.by === "user"
-                            ? "you"
-                            : row.by === "model"
-                              ? `agent · ${pct(row.confidence)}`
-                              : row.confidence > 0
-                                ? `rule · ${pct(row.confidence)}`
-                                : "no rule"}
-                        </div>
-                      </div>
-                      <div className="shrink-0 text-right">
-                        <div className="mono text-sm">{fmt(row.amount, row.symbol)}</div>
-                        <div className="mt-1 flex justify-end gap-1">
-                          <button
-                            className="btn px-2 py-1 text-[11px]"
-                            onClick={() => setOpen(open === row.id ? null : row.id)}
-                          >
-                            {open === row.id ? "close" : "fix"}
-                          </button>
-                          {row.category === "Uncategorized" && (
-                            <button
-                              className="btn px-2 py-1 text-[11px]"
-                              onClick={() => askAgent(row)}
-                              disabled={busy === row.id}
-                              title="Agent pays 0.01 USDC on Sui for a merchant label"
-                            >
-                              {busy === row.id ? "paying…" : "ask agent"}
-                            </button>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-
-                    {open === row.id && <FixPanel row={row} busy={busy === row.id} onSave={fix} />}
-                  </li>
-                ))}
-              </ul>
-            </section>
-
-            <div className="flex flex-col gap-6">
-              <section className="panel p-4">
-                <h2 className="mb-1 text-sm font-medium">What memory bought</h2>
-                <p className="mb-3 text-[11px] leading-relaxed" style={{ color: "var(--muted)" }}>
-                  Scored only on lines you did <em>not</em> correct, from merchants you did label.
-                  Scoring corrected lines would be circular — the fix is the answer. Left is the
-                  ruleset before your first correction, right is now.
-                </p>
-
-                <div className="mb-1 flex items-baseline justify-between">
-                  <span className="text-2xl font-semibold tracking-tight">
-                    {pct(ledger.learning.before)}
-                    <span style={{ color: "#4b5361" }}> → </span>
-                    {pct(ledger.learning.after)}
+              <div className="border-t border-zinc-200/80 px-5 py-4 dark:border-zinc-800/80">
+                <div className="flex items-baseline justify-between">
+                  <span className="text-xs font-medium text-zinc-500 dark:text-zinc-400">
+                    Generalisation
                   </span>
-                  <span className="mono text-[11px]" style={{ color: "var(--muted)" }}>
-                    {ledger.learning.correctAfter}/{ledger.learning.heldOut} held-out
+                  <span className="text-sm font-semibold tabular-nums text-emerald-600 dark:text-emerald-400">
+                    {pct(ledger?.learning.before ?? 0)}{" "}
+                    <span className="text-zinc-400">→</span>{" "}
+                    {pct(ledger?.learning.after ?? 0)}
                   </span>
                 </div>
-                <div className="bar mb-4">
-                  <span style={{ width: `${Math.max(2, ledger.learning.after * 100)}%` }} />
-                </div>
-
-                {ledger.rules.length === 0 ? (
-                  <p className="text-xs leading-relaxed" style={{ color: "var(--muted)" }}>
-                    No rules yet. Correct one payment and the rule appears here with its evidence
-                    count, readable as a line of memory.
-                  </p>
-                ) : (
-                  <ul className="space-y-2">
-                    {ledger.rules.slice(0, 6).map((r) => (
-                      <li key={`${r.target}-${r.category}`} className="text-xs leading-relaxed">
-                        <span className="mono" style={{ color: "#9d8cff" }}>
-                          {r.label ?? short(r.target)}
-                        </span>
-                        <span style={{ color: "var(--muted)" }}> → </span>
-                        <span>{r.category}</span>
-                        <span className="mono ml-2 text-[10px]" style={{ color: "#5c6573" }}>
-                          evidence {r.evidence}
-                        </span>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </section>
-
-              <section className="panel p-4">
-                <h2 className="mb-3 text-sm font-medium">By category{month ? ` · ${month.month}` : ""}</h2>
-                {!month || month.byCategory.length === 0 ? (
-                  <p className="text-xs" style={{ color: "var(--muted)" }}>Nothing counted yet.</p>
-                ) : (
-                  <ul className="space-y-2">
-                    {month.byCategory.map((c) => (
-                      <li key={c.category}>
-                        <div className="mb-1 flex justify-between text-[11px]">
-                          <span>{c.category}</span>
-                          <span className="mono" style={{ color: "var(--muted)" }}>
-                            {fmt(c.amount, month.symbol)}
-                          </span>
-                        </div>
-                        <div className="bar">
-                          <span
-                            style={{
-                              width: `${Math.max(2, (c.amount / maxCat) * 100)}%`,
-                              background: CAT_COLOR[c.category] ?? "#7c5cff",
-                            }}
-                          />
-                        </div>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </section>
-
-              <section className="panel p-4">
-                <h2 className="mb-1 text-sm font-medium">Agent payments</h2>
-                <p className="mb-3 text-[11px] leading-relaxed" style={{ color: "var(--muted)" }}>
-                  Each line is a real USDC transfer on Sui mainnet, paid by this app&apos;s agent to
-                  buy a merchant label it could not derive. The seller is this app&apos;s own
-                  directory — stated plainly, not implied.
+                <p className="mt-1.5 text-[11px] leading-relaxed text-zinc-500 dark:text-zinc-500">
+                  Scored only on lines you never corrected, from merchants you did label.{" "}
+                  {ledger?.learning.heldOut ?? 0} held-out line
+                  {(ledger?.learning.heldOut ?? 0) === 1 ? "" : "s"}.
                 </p>
-                {ledger.pays.length === 0 ? (
-                  <p className="text-xs" style={{ color: "var(--muted)" }}>
-                    No agent payments yet. Use <span className="mono">ask agent</span> on an
-                    uncategorised line.
-                  </p>
-                ) : (
-                  <ul className="space-y-2">
-                    {ledger.pays.map((p) => (
-                      <li key={p.digest + p.at} className="mono text-[11px] leading-relaxed">
-                        <span style={{ color: "#35c77a" }}>{p.amount} {p.symbol}</span>
-                        <span style={{ color: "var(--muted)" }}> · {p.for}</span>
-                        <br />
+              </div>
+            </Card>
+
+            <Card className="overflow-hidden">
+              <div className="border-b border-zinc-200/80 px-5 py-4 dark:border-zinc-800/80">
+                <h2 className="text-sm font-semibold">Agent payments</h2>
+                <p className="mt-1.5 text-xs leading-relaxed text-zinc-500 dark:text-zinc-400">
+                  Real USDC on Sui, paid to buy a merchant label the chain cannot describe.
+                </p>
+              </div>
+              <div className="p-4">
+                {ledger && ledger.pays.length > 0 ? (
+                  <ul className="space-y-3">
+                    {ledger.pays.slice(0, 4).map((p) => (
+                      <li key={p.digest + p.at} className="text-xs">
+                        <div className="flex items-center justify-between">
+                          <span className="font-medium tabular-nums text-emerald-600 dark:text-emerald-400">
+                            {p.amount} {p.symbol}
+                          </span>
+                          <span className="text-zinc-500">{p.for.replace("label:", "")}</span>
+                        </div>
                         <a
                           href={`https://suiscan.xyz/mainnet/tx/${p.digest}`}
                           target="_blank"
                           rel="noreferrer"
-                          style={{ color: "#6f8dff" }}
+                          className="mt-0.5 block truncate font-mono text-[10px] text-zinc-400 hover:text-emerald-600 dark:hover:text-emerald-400"
                         >
-                          {p.digest.slice(0, 24)}…
+                          {p.digest}
                         </a>
                       </li>
                     ))}
                   </ul>
+                ) : (
+                  <p className="text-xs leading-relaxed text-zinc-500 dark:text-zinc-500">
+                    None yet. When an uncategorised merchant appears, the agent can buy its label
+                    for 0.01 USDC — and that payment lands in this ledger too.
+                  </p>
                 )}
-              </section>
-            </div>
+              </div>
+            </Card>
           </div>
-        </>
-      )}
+        </div>
 
-      <footer className="mt-10 text-[11px] leading-relaxed" style={{ color: "#4b5361" }}>
-        Ledger lines are immutable. A correction is appended, never written over the observation, so
-        the app can always show what it thought before you taught it otherwise. Tatum Sui GraphQL is
-        used once per wallet sync; page reads never touch it.
-      </footer>
-    </main>
-  );
-}
+        <footer className="mt-10 flex flex-col gap-1 text-[11px] leading-relaxed text-zinc-400 dark:text-zinc-600">
+          <p>
+            Ledger lines are immutable. A correction is appended, never written over the
+            observation, so the app can always show what it thought before you taught it otherwise.
+          </p>
+          <p>Tatum Sui GraphQL is used once per sync; page reads never touch it.</p>
+        </footer>
+      </main>
 
-function Stat({ label, value, hint, accent }: { label: string; value: string; hint: string; accent?: boolean }) {
-  return (
-    <div className="panel p-3.5">
-      <div className="text-[11px]" style={{ color: "var(--muted)" }}>{label}</div>
-      <div className="mt-1 text-xl font-semibold tracking-tight" style={{ color: accent ? "#9d8cff" : "var(--ink)" }}>
-        {value}
-      </div>
-      <div className="mt-0.5 text-[10px]" style={{ color: "#5c6573" }}>{hint}</div>
-    </div>
-  );
-}
-
-function FixPanel({
-  row,
-  busy,
-  onSave,
-}: {
-  row: SpendRow;
-  busy: boolean;
-  onSave: (row: SpendRow, category: string, label?: string) => void;
-}) {
-  const [category, setCategory] = useState(row.category === "Uncategorized" ? "Food" : row.category);
-  const [label, setLabel] = useState(row.label ?? "");
-
-  return (
-    <div className="mt-3 rounded-lg p-3" style={{ background: "#0b0d11", border: "1px solid var(--line)" }}>
-      <div className="flex flex-col gap-2 sm:flex-row">
-        <select value={category} onChange={(e) => setCategory(e.target.value)} className="sm:w-40">
-          {CATEGORIES.map((c) => (
-            <option key={c} value={c}>{c}</option>
-          ))}
-        </select>
-        <input
-          value={label}
-          onChange={(e) => setLabel(e.target.value)}
-          placeholder="Merchant name (optional)"
-          className="flex-1"
-        />
-        <button
-          className="btn btn-primary"
-          onClick={() => onSave(row, category, label.trim() || undefined)}
-          disabled={busy}
-        >
-          {busy ? "writing…" : "Remember"}
-        </button>
-      </div>
-      <p className="mt-2 text-[10px] leading-relaxed" style={{ color: "#5c6573" }}>
-        Writes two lines to Walrus Memory: the correction, and a rule for{" "}
-        <span className="mono">{short(row.to)}</span>. Nothing is overwritten.
-      </p>
+      <CorrectDialog
+        row={target}
+        open={dialogOpen}
+        busy={busy === target?.id}
+        onOpenChange={setDialogOpen}
+        onSave={save}
+      />
+      <AgentPanel wallet={wallet} />
     </div>
   );
 }

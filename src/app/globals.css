@@ -1,96 +1,104 @@
 @import "tailwindcss";
 
-:root {
-  --bg: #08090b;
-  --panel: #0e1014;
-  --line: #1e232b;
-  --ink: #e8ebef;
-  --muted: #8b93a1;
-  --accent: #7c5cff;
-  --good: #35c77a;
-  --warn: #e0a63a;
+/*
+ * Class-based dark mode, not prefers-color-scheme.
+ * A finance dashboard is used in daylight too, and a user who chooses light in
+ * a dark-mode OS should keep light. The class is applied by the inline script in
+ * the layout before first paint so there is no flash.
+ */
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme {
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+
+  /* Stronger than the CSS built-ins; they make 150ms read as intentional. */
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
+  --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
 }
 
-html,
-body {
-  background: var(--bg);
-  color: var(--ink);
-}
-
-body {
-  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+html {
+  -webkit-text-size-adjust: 100%;
   font-feature-settings: "tnum" 1;
 }
 
-.mono {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+body {
+  background-color: rgb(250 250 250);
+  color: rgb(24 24 27);
 }
 
-.panel {
-  background: var(--panel);
-  border: 1px solid var(--line);
-  border-radius: 14px;
+.dark body {
+  background-color: rgb(9 9 11);
+  color: rgb(244 244 245);
 }
 
-.chip {
-  border-radius: 999px;
-  padding: 2px 9px;
-  font-size: 11px;
-  line-height: 18px;
-  border: 1px solid var(--line);
-  white-space: nowrap;
+::selection {
+  background-color: rgb(16 185 129 / 0.25);
 }
 
-.btn {
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  padding: 7px 12px;
-  font-size: 13px;
-  background: #14171c;
-  transition: border-color 120ms ease, background 120ms ease;
-}
-.btn:hover:not(:disabled) {
-  border-color: #3a4250;
-  background: #191d23;
-}
-.btn:disabled {
-  opacity: 0.45;
-  cursor: not-allowed;
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgb(161 161 170 / 0.4) transparent;
 }
 
-.btn-primary {
-  background: linear-gradient(180deg, #8a6bff, #6d4cf0);
-  border-color: #7c5cff;
-  color: white;
-  font-weight: 600;
-}
-.btn-primary:hover:not(:disabled) {
-  background: linear-gradient(180deg, #9479ff, #7a5cf5);
-}
-
-input,
-select {
-  background: #0b0d11;
-  border: 1px solid var(--line);
-  border-radius: 9px;
-  padding: 8px 10px;
-  color: var(--ink);
-  font-size: 13px;
-  outline: none;
-}
-input:focus,
-select:focus {
-  border-color: #3d3358;
+/*
+ * Entry motion for cards and list rows.
+ * Only opacity + transform: both skip layout and paint, so a dashboard that is
+ * simultaneously fetching does not stutter its own entrance.
+ */
+@keyframes enter-up {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
-.bar {
-  height: 6px;
-  border-radius: 999px;
-  background: #171b21;
-  overflow: hidden;
+.enter {
+  animation: enter-up 260ms var(--ease-out) both;
 }
-.bar > span {
-  display: block;
-  height: 100%;
-  background: linear-gradient(90deg, #7c5cff, #4ea3ff);
+
+/* Stagger is decorative and short; anything longer reads as lag. */
+.enter-1 { animation-delay: 30ms; }
+.enter-2 { animation-delay: 65ms; }
+.enter-3 { animation-delay: 100ms; }
+
+/*
+ * Reveal-on-hover, gated to devices that actually hover.
+ * Ungated, a touch device fires :hover on tap and the button stays visible
+ * afterwards — a row that was never selected looks selected. On touch the
+ * button is simply always visible instead.
+ */
+.reveal {
+  opacity: 1;
+  transition: opacity 150ms var(--ease-out);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .reveal {
+    opacity: 0;
+  }
+  .group:hover .reveal,
+  .reveal:focus-visible {
+    opacity: 1;
+  }
+}
+
+/*
+ * Reduced motion means gentler, not none: colour and opacity stay because they
+ * aid comprehension, movement goes.
+ */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }
