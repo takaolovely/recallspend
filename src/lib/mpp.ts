@@ -60,6 +60,26 @@ export function merchantAddress(): string | null {
   return process.env.MPP_RECIPIENT || null;
 }
 
+/**
+ * The agent's own address, derived from its key.
+ *
+ * Shown in the UI so the payer is a visible account with a balance rather than
+ * an anonymous "the app pays". If the agent runs dry the panel says so before a
+ * judge clicks and gets a failed payment.
+ */
+export function agentAddress(): string | null {
+  const key = payerKey();
+  if (!key) return null;
+  try {
+    const { decodeSuiPrivateKey } = require("@mysten/sui/cryptography") as typeof import("@mysten/sui/cryptography");
+    const { Ed25519Keypair } = require("@mysten/sui/keypairs/ed25519") as typeof import("@mysten/sui/keypairs/ed25519");
+    const { secretKey } = decodeSuiPrivateKey(key);
+    return Ed25519Keypair.fromSecretKey(secretKey).toSuiAddress();
+  } catch {
+    return null;
+  }
+}
+
 /* ------------------------------------------------------------------ */
 /* Agent side                                                         */
 /* ------------------------------------------------------------------ */
@@ -93,6 +113,27 @@ export type PaymentResult = {
 };
 
 /**
+ * Build the signer from whatever shape the key arrives in.
+ *
+ * `Ed25519Keypair.deriveKeypair` only accepts a 12/24-word mnemonic. The key on
+ * this host is a bech32 `suiprivkey1…` export, which that function rejects with
+ * "Invalid mnemonic" — a failure that looks like a broken key rather than the
+ * wrong parser, and it only shows up the first time real money is meant to move.
+ * Accept both, in that order.
+ */
+async function signerFrom(key: string) {
+  const { decodeSuiPrivateKey } = await import("@mysten/sui/cryptography");
+  const { Ed25519Keypair } = await import("@mysten/sui/keypairs/ed25519");
+  const trimmed = key.trim();
+  try {
+    const { secretKey } = decodeSuiPrivateKey(trimmed);
+    return Ed25519Keypair.fromSecretKey(secretKey);
+  } catch {
+    return Ed25519Keypair.deriveKeypair(trimmed);
+  }
+}
+
+/**
  * Ask the paid endpoint, paying if challenged.
  *
  * Returns the digest so the caller can write it into the ledger as a line: the
@@ -111,13 +152,12 @@ export async function payAndFetch(
     const { Mppx } = await import("mppx/client");
     const { sui } = await import("@suimpp/mpp/client");
     const { SuiGrpcClient } = await import("@mysten/sui/grpc");
-    const { Ed25519Keypair } = await import("@mysten/sui/keypairs/ed25519");
 
     const client = new SuiGrpcClient({
       baseUrl: process.env.SUI_RPC_URL || "https://fullnode.mainnet.sui.io:443",
       network: "mainnet",
     });
-    const signer = Ed25519Keypair.deriveKeypair(key);
+    const signer = await signerFrom(key);
 
     mppx = Mppx.create({ methods: [sui({ client, signer, currency: USDC })] });
   } catch (err) {
@@ -139,12 +179,6 @@ export async function payAndFetch(
       /* keep the raw text */
     }
 
-    const digest =
-      (res.headers.get("x-payment-digest") ??"") ||
-      (typeof parsed === "object" && parsed && "payment" in parsed
-        ? String((parsed as { payment?: { digest?: string } }).payment?.digest ?? "")
-        : "");
-
     if (!res.ok) {
       return {
         ok: false,
@@ -154,6 +188,24 @@ export async function payAndFetch(
         unfunded: /insufficient|balance|coin/i.test(text),
       };
     }
+
+    /**
+     * The digest lives in the `Payment-Receipt` header, base64url-encoded, as
+     * `.reference`. Reading `x-payment-digest` instead looked plausible and was
+     * always empty — the first real payment settled on chain with no digest
+     * recorded, so the ledger had a 0.01 USDC line that proved nothing.
+     */
+    let digest = "";
+    const receipt = res.headers.get("payment-receipt");
+    if (receipt) {
+      try {
+        const { Receipt } = await import("mppx");
+        digest = Receipt.deserialize(receipt).reference ?? "";
+      } catch {
+        /* fall through to the plain header */
+      }
+    }
+    if (!digest) digest = res.headers.get("x-payment-digest") ?? "";
 
     return { ok: true, status: res.status, body: parsed, digest: digest || undefined };
   } catch (err) {

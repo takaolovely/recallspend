@@ -38,9 +38,9 @@ const COINS = [
 const TTL_MS = 60_000;
 const cache = new Map<string, { at: number; balances: Balance[] }>();
 
-export async function balances(wallet: string): Promise<Balance[]> {
+export async function balances(wallet: string, opts: { fresh?: boolean } = {}): Promise<Balance[]> {
   const hit = cache.get(wallet);
-  if (hit && Date.now() - hit.at < TTL_MS) return hit.balances;
+  if (!opts.fresh && hit && Date.now() - hit.at < TTL_MS) return hit.balances;
 
   const client = new SuiGraphQLClient({
     url: process.env.SUI_PUBLIC_GRAPHQL || "https://graphql.mainnet.sui.io/graphql",

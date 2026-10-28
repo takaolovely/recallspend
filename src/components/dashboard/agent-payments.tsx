@@ -1,0 +1,158 @@
+"use client";
+
+import { ArrowUpRight, Bot, Wallet, Zap } from "lucide-react";
+
+import { shortAddress } from "@/lib/utils";
+import type { AgentInfo, PayRow, RuleRow } from "@/lib/types";
+
+/**
+ * AgentPayments — the payer made visible.
+ *
+ * Every other spending app hides its running cost. This panel prints it: which
+ * account pays, what is left in it, and one line per purchase with the Sui
+ * digest that proves the money moved.
+ *
+ * The balance is read from Sui on every page load, not from a constant. A panel
+ * that shows "0.42 USDC" because someone typed 0.42 is decoration; this one says
+ * "unfunded" when the account is empty, and the click explains itself instead of
+ * failing somewhere else.
+ */
+export function AgentPayments({
+  agent,
+  pays,
+  rules,
+  price = "0.01",
+}: {
+  agent: AgentInfo | null;
+  pays: PayRow[];
+  rules: RuleRow[];
+  price?: string;
+}) {
+  const labelFor = new Map(rules.map((r) => [r.target.toLowerCase(), r.label ?? null]));
+  const funded = (agent?.lookupsLeft ?? 0) > 0;
+
+  return (
+    <div className="overflow-hidden rounded-2xl border border-zinc-200/80 bg-white dark:border-zinc-800/80 dark:bg-zinc-900/40">
+      <div className="border-b border-zinc-200/80 px-5 py-4 dark:border-zinc-800/80">
+        <div className="flex items-center gap-2">
+          <span className="grid size-6 place-items-center rounded-md bg-emerald-50 text-emerald-600 dark:bg-emerald-500/10 dark:text-emerald-400">
+            <Zap className="size-3.5" />
+          </span>
+          <h2 className="text-sm font-semibold">Agent payments</h2>
+          <span className="ml-auto font-mono text-[10px] uppercase tracking-wide text-zinc-400">
+            sui mainnet
+          </span>
+        </div>
+        <p className="mt-1.5 text-xs leading-relaxed text-zinc-500 dark:text-zinc-400">
+          Real USDC, spent by the agent to buy a merchant name the chain cannot describe.
+        </p>
+      </div>
+
+      {/* Balance */}
+      <div className="px-5 py-4">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <div className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-zinc-400">
+              <Wallet className="size-3" />
+              Agent wallet
+            </div>
+            <div className="mt-1 flex items-baseline gap-1.5">
+              <span className="text-xl font-semibold tabular-nums text-zinc-900 dark:text-zinc-100">
+                {agent ? agent.usdc.toFixed(4) : "—"}
+              </span>
+              <span className="text-xs font-medium text-zinc-500">USDC</span>
+            </div>
+          </div>
+          <span
+            className={
+              funded
+                ? "inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-1 text-[10px] font-medium text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-400"
+                : "inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-1 text-[10px] font-medium text-amber-700 dark:bg-amber-500/10 dark:text-amber-400"
+            }
+          >
+            <span className={funded ? "size-1.5 rounded-full bg-emerald-500" : "size-1.5 rounded-full bg-amber-500"} />
+            {funded ? `${agent?.lookupsLeft} lookups left` : "unfunded"}
+          </span>
+        </div>
+
+        <div className="mt-2 flex items-center gap-1.5 text-[11px] text-zinc-500 dark:text-zinc-500">
+          <Bot className="size-3" />
+          <span className="tabular-nums">
+            {agent ? `${agent.sui.toFixed(4)} SUI gas` : "no key configured"}
+          </span>
+          {agent && (
+            <>
+              <span className="text-zinc-300 dark:text-zinc-700">·</span>
+              <a
+                href={`https://suiscan.xyz/mainnet/account/${agent.address}`}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-0.5 font-mono text-[10px] text-zinc-400 hover:text-emerald-600 dark:hover:text-emerald-400"
+                title={agent.address}
+              >
+                {shortAddress(agent.address, 6, 4)}
+                <ArrowUpRight className="size-2.5" />
+              </a>
+            </>
+          )}
+        </div>
+      </div>
+
+      {/* Log */}
+      <div className="border-t border-zinc-200/80 dark:border-zinc-800/80">
+        <div className="flex items-center justify-between px-5 pb-2 pt-4">
+          <span className="text-[11px] font-medium uppercase tracking-wide text-zinc-400">
+            Payment log
+          </span>
+          <span className="text-[11px] tabular-nums text-zinc-400">{pays.length}</span>
+        </div>
+
+        {pays.length > 0 ? (
+          <ul className="divide-y divide-zinc-100 dark:divide-zinc-800/60">
+            {pays.slice(0, 6).map((p) => {
+              const merchant = p.target ? labelFor.get(p.target.toLowerCase()) : null;
+              const what = merchant ?? p.for.replace("merchant:", "").replace("label:", "");
+              return (
+                <li key={p.digest + p.at} className="px-5 py-2.5">
+                  <div className="flex items-baseline justify-between gap-2">
+                    <span className="truncate text-xs font-medium text-zinc-900 dark:text-zinc-100">
+                      {what}
+                    </span>
+                    <span className="shrink-0 text-xs font-medium tabular-nums text-emerald-600 dark:text-emerald-400">
+                      −{p.amount} {p.symbol}
+                    </span>
+                  </div>
+                  <div className="mt-0.5 flex items-center gap-1.5 text-[10px] text-zinc-400">
+                    <span>label bought</span>
+                    <span className="text-zinc-300 dark:text-zinc-700">·</span>
+                    {p.digest ? (
+                      <a
+                        href={`https://suiscan.xyz/mainnet/tx/${p.digest}`}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-flex items-center gap-0.5 font-mono hover:text-emerald-600 dark:hover:text-emerald-400"
+                      >
+                        {shortAddress(p.digest, 5, 4)}
+                        <ArrowUpRight className="size-2.5" />
+                      </a>
+                    ) : (
+                      <span className="font-mono">no digest</span>
+                    )}
+                    <span className="text-zinc-300 dark:text-zinc-700">·</span>
+                    <span>{new Date(p.at).toLocaleString()}</span>
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        ) : (
+          <p className="px-5 pb-4 text-xs leading-relaxed text-zinc-500 dark:text-zinc-500">
+            Nothing bought yet. Press <span className="font-medium text-zinc-700 dark:text-zinc-300">Get label</span>{" "}
+            on an unnamed merchant and the agent pays {price} USDC for its name, writes it to
+            Walrus Memory, and the line shows up here with the settlement digest.
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}

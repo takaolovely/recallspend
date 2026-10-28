@@ -58,7 +58,7 @@ export function TopNav({
           ) : (
             <Button size="sm" variant="emerald" onClick={onConnect} disabled={connecting}>
               <Wallet className="size-3.5" />
-              Connect wallet
+              Sync wallet
             </Button>
           )}
 

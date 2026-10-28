@@ -28,7 +28,18 @@ export type PayRow = {
   symbol: string;
   to: string;
   for: string;
+  /** Merchant address the label belongs to, so a payment can be joined to rows. */
+  target?: string;
   at: string;
+};
+
+/** The agent's own account, read from Sui rather than assumed. */
+export type AgentInfo = {
+  address: string;
+  usdc: number;
+  sui: number;
+  lookupsLeft: number;
+  price?: string;
 };
 
 export type Ledger = {

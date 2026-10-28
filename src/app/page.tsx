@@ -16,26 +16,56 @@ import { TransactionRow } from "@/components/dashboard/transaction-row";
 import { LearnedRuleItem } from "@/components/dashboard/learned-rule-item";
 import { EmptyState } from "@/components/dashboard/empty-state";
 import { AgentPanel } from "@/components/dashboard/agent-panel";
+import { AgentPayments } from "@/components/dashboard/agent-payments";
 import { CorrectDialog } from "@/components/dashboard/correct-dialog";
 import { RuleSkeleton, TransactionSkeleton } from "@/components/ui/skeleton";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { formatAmount, pct, shortAddress } from "@/lib/utils";
-import type { Balance, Ledger, SpendRow } from "@/lib/types";
+import type { AgentInfo, Balance, Ledger, SpendRow } from "@/lib/types";
 
-const DEMO_WALLET = "0x8fbd10bdc30b5a998bdfbf26d7bae87314b4bdeaa4be53dbbfc5ca88f84e37ca";
+/**
+ * A wallet with real, unglamorous history: gas lines and three outgoing
+ * transfers to addresses nobody has named. Those three rows are the whole demo —
+ * they are what the agent pays to label. Kept separate from the agent's own
+ * wallet on purpose, so the payer address in the panel is visibly another
+ * account and not the app paying itself.
+ */
+const DEMO_WALLET = "0xf42e7b60311d13a62c66afa1b8a2b916092572c0be15af6ea2cba931ec83d8ed";
+
+type AgentResponse = {
+  status: "labelled" | "no_label" | "already" | "unfunded" | "error";
+  price?: string;
+  profile?: { label?: string | null; category?: string | null; source?: string };
+  digest?: string;
+  error?: string;
+};
 
 export default function Page() {
   const [input, setInput] = useState("");
   const [wallet, setWallet] = useState<string | null>(null);
   const [ledger, setLedger] = useState<Ledger | null>(null);
   const [balances, setBalances] = useState<Balance[]>([]);
+  const [agent, setAgent] = useState<AgentInfo | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  const [buying, setBuying] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [target, setTarget] = useState<SpendRow | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [loading, setLoading] = useState(true);
+
+  const loadAgent = useCallback(async (fresh = false) => {
+    try {
+      const res = await fetch(`/api/agent/balance${fresh ? "?fresh=1" : ""}`, {
+        cache: "no-store",
+      });
+      if (!res.ok) return;
+      setAgent((await res.json()) as AgentInfo);
+    } catch {
+      // The panel renders an em dash rather than a wrong number.
+    }
+  }, []);
 
   const load = useCallback(async (w: string) => {
     setLoading(true);
@@ -56,7 +86,8 @@ export default function Page() {
     const fromUrl = new URLSearchParams(window.location.search).get("wallet") ?? DEMO_WALLET;
     setInput(fromUrl);
     load(fromUrl.toLowerCase()).catch((e) => setNotice(String(e.message ?? e)));
-  }, [load]);
+    void loadAgent();
+  }, [load, loadAgent]);
 
   const sync = async (raw?: string) => {
     const w = (raw ?? input).trim().toLowerCase();
@@ -118,6 +149,113 @@ export default function Page() {
     }
   };
 
+  /**
+   * One click, three things on the server: free preflight, the 0.01 USDC
+   * payment on Sui, then two memory writes. The UI only reports what the server
+   * actually did — including "nothing was charged" when there is nothing to buy.
+   */
+  const buyLabel = async (row: SpendRow) => {
+    if (!wallet) return;
+    setBuying(row.id);
+    setNotice(null);
+    const pendingKey = `recallspend:pending:${wallet}:${row.id}`;
+    try {
+      /**
+       * Resume rather than re-charge. If the payment settled but the memory write
+       * died, the digest is still on this device, so the next click finishes the
+       * job for 0 rather than paying 0.01 USDC again.
+       */
+      let digest = localStorage.getItem(pendingKey) ?? "";
+
+      if (!digest) {
+        const res = await fetch("/api/agent", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ wallet, id: row.id }),
+        });
+        const json = (await res.json()) as AgentResponse & { spendId?: string };
+        if (!res.ok) throw new Error(json.error ?? "agent failed");
+
+        if (json.status === "already") {
+          await load(wallet);
+          await loadAgent(true);
+          setNotice("This merchant was already bought — no second charge.");
+          return;
+        }
+
+        if (json.status !== "labelled" || !json.digest) {
+          setNotice(
+            json.status === "unfunded"
+              ? `Agent wallet is out of USDC, so nothing was charged. ${json.error ?? ""}`.trim()
+              : `Nothing was charged. ${json.error ?? "The seller has no label for this merchant."}`,
+          );
+          return;
+        }
+
+        digest = json.digest;
+        localStorage.setItem(pendingKey, digest);
+        setNotice(
+          `Paid ${json.price ?? "0.01"} USDC → “${json.profile?.label}”. Writing it to Walrus Memory…`,
+        );
+      }
+
+      // STEP 2: prove the digest, then write both lines.
+      const rec = await fetch("/api/agent/record", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ wallet, id: row.id, digest }),
+      });
+      const saved = (await rec.json()) as AgentResponse;
+      if (!rec.ok) throw new Error(saved.error ?? "could not write to memory");
+
+      localStorage.removeItem(pendingKey);
+      await load(wallet);
+      await loadAgent(true);
+
+      setNotice(
+        saved.status === "already"
+          ? `Already remembered. Settlement ${shortAddress(digest, 6, 4)}.`
+          : `Agent paid ${saved.price ?? "0.01"} USDC → “${saved.profile?.label}” (${saved.profile?.source ?? "seller"}) → written to Walrus Memory. Settlement ${shortAddress(digest, 6, 4)}.`,
+      );
+      window.history.replaceState(null, "", `?wallet=${wallet}`);
+    } catch (e) {
+      /**
+       * Memory is the source of truth, so re-read it before reporting failure.
+       * The payment may have settled and the write may have landed even though
+       * this request died on the way back.
+       */
+      let recovered = false;
+      try {
+        const res = await fetch(`/api/ledger?wallet=${wallet}`, { cache: "no-store" });
+        const json = await res.json();
+        const hit = (json.ledger?.spends ?? []).find((s: SpendRow) => s.id === row.id);
+        if (hit?.label) {
+          localStorage.removeItem(pendingKey);
+          setLedger(json.ledger);
+          setBalances(json.balances ?? []);
+          setNotice(
+            `Agent paid and the answer “${hit.label}” is in Walrus Memory. The request was slow, so this was read back from memory rather than from the call.`,
+          );
+          await loadAgent(true);
+          recovered = true;
+        }
+      } catch {
+        /* fall through to the real error */
+      }
+      if (!recovered) {
+        setNotice(
+          localStorage.getItem(pendingKey)
+            ? `${e instanceof Error ? e.message : String(e)} — the payment is recorded on this device, so clicking again will finish writing it without paying twice.`
+            : e instanceof Error
+              ? e.message
+              : String(e),
+        );
+      }
+    } finally {
+      setBuying(null);
+    }
+  };
+
   const month = ledger?.months[0];
   const usdc = balances.find((b) => b.symbol === "USDC");
   const sui = balances.find((b) => b.symbol === "SUI");
@@ -128,6 +266,15 @@ export default function Page() {
     const map = new Map<string, number>();
     for (const s of ledger?.spends ?? []) {
       if (s.by === "rule" && !s.corrected) map.set(s.to, (map.get(s.to) ?? 0) + 1);
+    }
+    return map;
+  }, [ledger]);
+
+  /** target address → USDC spent buying its label. */
+  const paidByTarget = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const p of ledger?.pays ?? []) {
+      if (p.target) map.set(p.target.toLowerCase(), p.amount);
     }
     return map;
   }, [ledger]);
@@ -199,9 +346,11 @@ export default function Page() {
             label="Learned rules"
             value={loading ? "—" : String(ledger?.totals.learnedRules ?? 0)}
             hint={
-              ledger?.totals.corrected
-                ? `from ${ledger.totals.corrected} correction${ledger.totals.corrected === 1 ? "" : "s"}`
-                : "correct a payment to start"
+              ledger?.pays.length
+                ? `${ledger.pays.length} bought by the agent`
+                : ledger?.totals.corrected
+                  ? `from ${ledger.totals.corrected} correction${ledger.totals.corrected === 1 ? "" : "s"}`
+                  : "correct or buy a label"
             }
             icon={BrainCircuit}
             tone="emerald"
@@ -256,6 +405,8 @@ export default function Page() {
                     key={row.id}
                     row={row}
                     busy={busy === row.id}
+                    buying={buying === row.id}
+                    onBuy={buyLabel}
                     onCorrect={(r) => {
                       setTarget(r);
                       setDialogOpen(true);
@@ -266,7 +417,7 @@ export default function Page() {
             )}
           </Card>
 
-          {/* Rules sidebar */}
+          {/* Rules + agent sidebar */}
           <div className="flex flex-col gap-6 lg:sticky lg:top-24">
             <Card className="overflow-hidden">
               <div className="border-b border-zinc-200/80 px-5 py-4 dark:border-zinc-800/80">
@@ -278,7 +429,7 @@ export default function Page() {
                 </div>
                 <p className="mt-1.5 text-xs leading-relaxed text-zinc-500 dark:text-zinc-400">
                   Each rule is a line in Walrus Memory. Evidence is how many of your corrections
-                  agreed.
+                  agreed; a paid rule shows what the agent spent instead.
                 </p>
               </div>
 
@@ -297,6 +448,7 @@ export default function Page() {
                         rule={r}
                         covered={coveredByRule.get(r.target) ?? 0}
                         maxEvidence={maxEvidence}
+                        paid={paidByTarget.get(r.target.toLowerCase()) ?? null}
                       />
                     ))}
                   </div>
@@ -304,7 +456,7 @@ export default function Page() {
                   <EmptyState
                     icon={BrainCircuit}
                     title="Nothing learned yet"
-                    description="Correct one payment and the rule appears here with the evidence behind it."
+                    description="Correct one payment and the rule appears here with the evidence behind it. Or let the agent buy a merchant name."
                   />
                 )}
               </div>
@@ -328,43 +480,11 @@ export default function Page() {
               </div>
             </Card>
 
-            <Card className="overflow-hidden">
-              <div className="border-b border-zinc-200/80 px-5 py-4 dark:border-zinc-800/80">
-                <h2 className="text-sm font-semibold">Agent payments</h2>
-                <p className="mt-1.5 text-xs leading-relaxed text-zinc-500 dark:text-zinc-400">
-                  Real USDC on Sui, paid to buy a merchant label the chain cannot describe.
-                </p>
-              </div>
-              <div className="p-4">
-                {ledger && ledger.pays.length > 0 ? (
-                  <ul className="space-y-3">
-                    {ledger.pays.slice(0, 4).map((p) => (
-                      <li key={p.digest + p.at} className="text-xs">
-                        <div className="flex items-center justify-between">
-                          <span className="font-medium tabular-nums text-emerald-600 dark:text-emerald-400">
-                            {p.amount} {p.symbol}
-                          </span>
-                          <span className="text-zinc-500">{p.for.replace("label:", "")}</span>
-                        </div>
-                        <a
-                          href={`https://suiscan.xyz/mainnet/tx/${p.digest}`}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="mt-0.5 block truncate font-mono text-[10px] text-zinc-400 hover:text-emerald-600 dark:hover:text-emerald-400"
-                        >
-                          {p.digest}
-                        </a>
-                      </li>
-                    ))}
-                  </ul>
-                ) : (
-                  <p className="text-xs leading-relaxed text-zinc-500 dark:text-zinc-500">
-                    None yet. When an uncategorised merchant appears, the agent can buy its label
-                    for 0.01 USDC — and that payment lands in this ledger too.
-                  </p>
-                )}
-              </div>
-            </Card>
+            <AgentPayments
+              agent={agent}
+              pays={ledger?.pays ?? []}
+              rules={ledger?.rules ?? []}
+            />
           </div>
         </div>
 

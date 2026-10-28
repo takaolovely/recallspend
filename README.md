@@ -81,9 +81,13 @@ claiming a perfect score on an empty set.
 ## The agent's payment is real
 
 ```
+GET  /api/enrich/preview    -> free: is there a label at all? (never the label)
 POST /api/enrich            -> 402 + WWW-Authenticate: Payment, method="sui"
-POST /api/enrich (paid)     -> merchant profile + Payment-Receipt header
-GET  /api/enrich/preview    -> free: is there a label at all?
+POST /api/enrich (paid)     -> merchant profile + Payment-Receipt (base64url, .reference = digest)
+
+POST /api/agent             -> STEP 1: pays 0.01 USDC, returns label + digest, writes nothing
+POST /api/agent/record      -> STEP 2: proves that digest on Sui, then writes the two lines
+GET  /api/agent/balance     -> the agent's own USDC and SUI, read from chain
 ```
 
 Implemented with `@suimpp/mpp` 0.9.0 (`suiServer` / `sui`) over `mppx` 0.15.0.
@@ -91,13 +95,40 @@ Settlement is USDC on **Sui mainnet**, not Base — the common x402 provider
 (Firecrawl) settles on Base and would fail the "settled on Sui" criterion while
 looking correct in a demo.
 
-The seller of the label is this app's own directory, built from corrections
-users have already made. That is stated plainly rather than implied: the agent
-buys a fact it could not derive from the chain, and the fact came from another
-human's correction. Amounts are never resold, only merchant address → label and
-category.
+**Why settle and remember are two requests.** A Vercel function is capped at 60s
+and the Walrus Memory relayer takes 20-40s per write. Doing both in one request
+produced the worst possible failure: the first real payment settled on chain,
+both lines reached memory, and the caller was still told "timeout". Split, a slow
+write can only delay step 2 — it can never lose a payment that already happened.
+The client keeps the digest in `localStorage` until the write succeeds, so a retry
+finishes the job for 0 instead of paying twice.
+
+**Why step 2 re-checks the chain.** Taking a digest from the client means a client
+could hand over a digest of something unrelated. `proveUsdcTransfer` reads the
+transaction from Sui and requires a USDC balance change from the agent's address
+to the seller of at least 0.01. Memory only receives a merchant label when that
+transfer exists. The claim "this fact was bought" is therefore checkable by
+anyone.
+
+Three settlements on mainnet, all with the same shape:
+
+```
+0.01 USDC  8Yy3etB3eQw2qoefTyyFrR4oporCKWbjdrxeQuuGDdxn   Coffee Shop
+0.01 USDC  DYASw…j4ES                                      Grocery Store
+0.01 USDC  43wZEK…Ec8D                                     Delivery
+```
+
+The seller of the label is this app's own directory: labels from corrections other
+wallets already made, plus a small **seed directory** (`src/lib/directory.ts`)
+so the market is not empty on day one. Every profile carries its provenance and
+the UI prints it — a seeded label says `seed directory`, a learned one says
+`N corrections`. The alternative, presenting seed data as if several users had
+agreed on it, would make the rest of the app untrustworthy.
 
 The free preview exists so the agent does not pay for a lookup with no answer.
+It returns `known: true/false` and never the label itself: the answer is what the
+payment buys.
+
 
 ## Cost discipline
 
@@ -142,6 +173,26 @@ Written down because these are the parts that cost time.
    forever. Env is read per request now.
 5. **`MPP_SECRET_KEY` is required** to sign challenges; without it
    `Mppx.create()` throws at request time.
+6. **The payment path had never run.** `Ed25519Keypair.deriveKeypair()` accepts a
+   mnemonic and nothing else; the key on this host is a bech32 `suiprivkey1…`
+   export, so the first real attempt failed with "Invalid mnemonic" — which reads
+   like a broken key rather than the wrong parser. It now accepts both shapes.
+7. **The digest was read from a header that does not exist.** The code looked for
+   `x-payment-digest`; the receipt is in `Payment-Receipt` as base64url with
+   `.reference` holding the digest. The first settlement therefore produced a
+   0.01 USDC line with no proof attached, which is the opposite of the point.
+8. **Tatum returns address history oldest-first.** `first: n, after:` walks from
+   the beginning of an account's history, so a wallet with more than four pages
+   synced its oldest eighty transactions and never saw today's spending. It only
+   looked correct because the first test wallet had four transactions. Now pages
+   walk backwards with `last` + `before`.
+9. **Every sync ended on a 429.** Tatum's free tier allows 3 requests per second
+   and a sync reads up to four pages back to back, so the fourth always failed
+   and the reported error made a working sync look broken. Retried with a pause.
+10. **Settling and remembering in one request exceeded 60s.** See above: the money
+    moved, the memory was written, and the caller was told it timed out. Split in
+    two, with the digest kept client-side until the write lands.
+
 
 ## Stack
 
@@ -192,3 +243,16 @@ curl -s https://recallspend.vercel.app/api/health
   and filter client-side.
 - Merchant labels are only as good as the corrections behind them. An address
   nobody has labelled returns `known: false` for free.
+- The seed directory is **demo data**. Four addresses are labelled in code so the
+  market is not empty on day one; the UI says `seed directory` next to them so
+  nobody mistakes a seed for a user correction. A real correction always outranks
+  a seed.
+- One line in the first wallet's payment log has **no digest**. It was written
+  before the receipt parser was fixed, and memory is append-only, so it stays as
+  evidence of the bug rather than being quietly rewritten.
+- A purchase takes 40-70 seconds end to end: ~20s to settle on Sui, then 20-40s
+  for the relayer. The UI narrates both steps instead of showing a spinner.
+- The demo wallet (`0xf42e7b…8ed`) is a throwaway key funded from the agent. Its
+  transactions are real, its merchant labels are seeded, and it exists so the
+  payer in the panel is visibly a different account from the user.
+

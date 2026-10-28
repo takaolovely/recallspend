@@ -1,4 +1,4 @@
-import { Sparkles, UserRound } from "lucide-react";
+import { Sparkles, UserRound, Zap } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { categoryMeta } from "./category-meta";
@@ -8,33 +8,41 @@ import type { SpendRow as Row } from "@/lib/types";
 /**
  * TransactionRow.
  *
- * Three states matter visually and must not look alike:
+ * Four states matter visually and must not look alike:
  *   - nothing special: a category, quietly
- *   - learned:    the app applied a rule it was taught (emerald, small)
- *   - corrected:  you set this line yourself (emerald, "you")
+ *   - needs a label:  an address we cannot name, with the action to fix it
+ *   - learned:        the app applied a rule it was taught (emerald, small)
+ *   - paid:           the label was bought from the seller for 0.01 USDC
  *
- * "Learned" is stated in words, not only in colour, because a colour-only signal
- * is invisible to a third of the people reading it.
+ * "Learned" and "paid" are both stated in words, not only in colour, because a
+ * colour-only signal is invisible to a third of the people reading it. The two
+ * are different claims: one says "you taught me", the other says "I bought this
+ * fact and here is the transaction".
  *
  * A fee is neither: nobody taught the app that gas is gas, it follows from the
- * transaction itself. Marking fees as "learned" made every row look trained and
+ * transaction itself. Marking fees as learned made every row look trained and
  * quietly devalued the one badge that is supposed to mean something.
  */
 export function TransactionRow({
   row,
   busy,
+  buying,
+  onBuy,
   onCorrect,
 }: {
   row: Row;
   busy: boolean;
+  buying: boolean;
+  onBuy: (row: Row) => void;
   onCorrect: (row: Row) => void;
 }) {
   const meta = categoryMeta(row.category);
   const Icon = meta.icon;
   const isFee = row.to === "—";
   const learned = row.by === "rule" && row.confidence > 0 && !isFee && !row.corrected;
-  const paid = row.by === "model";
-  const valued = row.corrected || learned || paid;
+  const paidLookup = Boolean(row.paid);
+  const needsLabel = !isFee && !row.corrected && row.category === "Uncategorized";
+  const valued = row.corrected || learned || paidLookup;
 
   return (
     <div className="group flex items-center gap-3 px-4 py-3.5 transition-colors duration-150 ease-[var(--ease-out)] hover:bg-zinc-50/80 sm:gap-4 sm:px-5 dark:hover:bg-zinc-800/30">
@@ -52,15 +60,31 @@ export function TransactionRow({
               <UserRound className="size-3" />
               you
             </span>
+          ) : paidLookup ? (
+            row.paid ? (
+              <a
+                href={`https://suiscan.xyz/mainnet/tx/${row.paid}`}
+                target="_blank"
+                rel="noreferrer"
+                title="This label was bought. Click for the settlement transaction."
+                className="inline-flex shrink-0 items-center gap-1 text-[11px] font-medium text-emerald-600 hover:underline dark:text-emerald-400"
+              >
+                <Zap className="size-3" />
+                paid
+              </a>
+            ) : (
+              <span
+                title="Bought before the receipt parser recorded digests, so this line has no proof link."
+                className="inline-flex shrink-0 items-center gap-1 text-[11px] font-medium text-emerald-600 dark:text-emerald-400"
+              >
+                <Zap className="size-3" />
+                paid
+              </span>
+            )
           ) : learned ? (
             <span className="inline-flex shrink-0 items-center gap-1 text-[11px] font-medium text-emerald-600 dark:text-emerald-400">
               <Sparkles className="size-3" />
               learned
-            </span>
-          ) : paid ? (
-            <span className="inline-flex shrink-0 items-center gap-1 text-[11px] font-medium text-emerald-600 dark:text-emerald-400">
-              <Sparkles className="size-3" />
-              paid lookup
             </span>
           ) : null}
         </div>
@@ -76,30 +100,56 @@ export function TransactionRow({
         </div>
       </div>
 
-      <div className="flex shrink-0 items-center gap-3 sm:gap-4">
+      <div className="flex shrink-0 items-center gap-2 sm:gap-3">
         <Badge variant={valued ? "emerald" : "default"} className="hidden sm:inline-flex">
           <span className={cn("size-1.5 rounded-full", meta.dot)} />
           {row.category}
         </Badge>
 
-        <div className="w-24 text-right sm:w-28">
+        <div className="hidden w-24 text-right sm:block sm:w-28">
           <div className="text-sm font-medium tabular-nums text-zinc-900 dark:text-zinc-100">
             {formatAmount(row.amount, row.symbol)}
           </div>
           <div className="text-[11px] text-zinc-400 dark:text-zinc-600">
             {row.corrected
               ? "you set this"
-              : paid
-                ? `${pct(row.confidence)} sure`
+              : paidLookup
+                ? "bought label"
                 : learned
                   ? `${pct(row.confidence)} sure`
                   : isFee
                     ? "no rule needed"
-                    : "no rule"}
+                    : "no label yet"}
           </div>
         </div>
 
-        <Button variant="outline" size="sm" disabled={busy} onClick={() => onCorrect(row)} className="reveal">
+        {/* The action a judge needs to find without being told where it is. */}
+        {needsLabel && (
+          <Button
+            variant="emerald"
+            size="sm"
+            disabled={busy || buying}
+            onClick={() => onBuy(row)}
+            title="The agent pays 0.01 USDC on Sui for this merchant's name, then writes it to Walrus Memory."
+          >
+            {buying ? (
+              "Paying…"
+            ) : (
+              <>
+                <Zap className="size-3.5" />
+                <span className="hidden sm:inline">Get label · </span>0.01 USDC
+              </>
+            )}
+          </Button>
+        )}
+
+        <Button
+          variant="outline"
+          size="sm"
+          disabled={busy || buying}
+          onClick={() => onCorrect(row)}
+          className={cn("reveal", needsLabel && "hidden sm:inline-flex")}
+        >
           {busy ? "saving…" : "Correct"}
         </Button>
       </div>

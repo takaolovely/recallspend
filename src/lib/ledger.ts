@@ -195,7 +195,7 @@ export async function syncWallet(
       .map((s) => s.id),
   );
 
-  let after: string | null = null;
+  let before: string | null = null;
   let pages = 0;
   let fetched = 0;
   let written = 0;
@@ -207,7 +207,7 @@ export async function syncWallet(
   for (let i = 0; i < maxPages; i++) {
     let page;
     try {
-      page = await historyPage(wallet, 20, after);
+      page = await historyPage(wallet, 20, before);
     } catch (err) {
       error = err instanceof Error ? err.message : String(err);
       break;
@@ -234,11 +234,11 @@ export async function syncWallet(
       reachedSince = true;
       break;
     }
-    if (!page.hasNextPage || !page.endCursor) {
+    if (!page.hasPreviousPage || !page.startCursor) {
       reachedSince = true;
       break;
     }
-    after = page.endCursor;
+    before = page.startCursor;
   }
 
   // One bulk write at the end, not one write per line: the relayer takes
@@ -325,6 +325,23 @@ export async function loadLedger(wallet: string): Promise<Ledger> {
   });
 
   spends.sort((a, b) => (a.at < b.at ? 1 : -1));
+
+  /**
+   * Which merchants were named by a paid lookup.
+   *
+   * A rule written by the agent and a rule written by the user look identical in
+   * memory, and they should: both are facts. But the UI owes the reader the
+   * difference, because "the app paid 0.01 USDC to learn this" is the one claim
+   * this product makes that no other spending tracker can.
+   */
+  const paidBy = new Map<string, PayLine>();
+  for (const p of pays) {
+    if (p.target) paidBy.set(p.target.toLowerCase(), p);
+  }
+  for (const s of spends) {
+    const hit = paidBy.get(s.to.toLowerCase());
+    if (hit) s.paid = hit.digest;
+  }
 
   const months = summarise(spends);
   const learning = holdoutScore(

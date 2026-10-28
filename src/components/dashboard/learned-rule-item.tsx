@@ -15,10 +15,17 @@ export function LearnedRuleItem({
   /** Lines this rule currently covers, excluding the one that created it. */
   covered,
   maxEvidence,
+  /**
+   * USDC the agent paid for this fact, when the rule came from a purchase
+   * rather than a correction. Two different claims: "you taught me" and "I
+   * bought this". Printing the wrong one would flatter the app.
+   */
+  paid,
 }: {
   rule: RuleRow;
   covered: number;
   maxEvidence: number;
+  paid?: number | null;
 }) {
   const meta = categoryMeta(rule.category);
   const width = Math.max(12, Math.round((rule.evidence / Math.max(maxEvidence, 1)) * 100));
@@ -42,12 +49,25 @@ export function LearnedRuleItem({
           </div>
         </div>
         <div className="shrink-0 text-right">
-          <div className="text-sm font-semibold tabular-nums text-emerald-600 dark:text-emerald-400">
-            {rule.evidence}
-          </div>
-          <div className="text-[10px] uppercase tracking-wide text-zinc-400 dark:text-zinc-600">
-            {rule.evidence === 1 ? "correction" : "corrections"}
-          </div>
+          {paid ? (
+            <>
+              <div className="text-sm font-semibold tabular-nums text-emerald-600 dark:text-emerald-400">
+                {paid} USDC
+              </div>
+              <div className="text-[10px] uppercase tracking-wide text-zinc-400 dark:text-zinc-600">
+                paid
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="text-sm font-semibold tabular-nums text-emerald-600 dark:text-emerald-400">
+                {rule.evidence}
+              </div>
+              <div className="text-[10px] uppercase tracking-wide text-zinc-400 dark:text-zinc-600">
+                {rule.evidence === 1 ? "correction" : "corrections"}
+              </div>
+            </>
+          )}
         </div>
       </div>
 

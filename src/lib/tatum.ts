@@ -120,19 +120,35 @@ export async function gql<T>(
 
   spend(operation);
 
-  const res = await fetch(ENDPOINT, {
-    method: "POST",
-    headers: {
-      "x-api-key": key,
-      "content-type": "application/json",
-      // Cloudflare in front of Tatum answers 403 "error code: 1010" to Node's
-      // default user agent. Without this every call dies at the edge.
-      "user-agent":
-        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36",
-    },
-    body: JSON.stringify({ query, variables }),
-    cache: "no-store",
-  });
+  /**
+   * Tatum's free tier allows 3 requests per second, and a sync walks up to four
+   * pages back to back. Every sync therefore ended on a 429, and the reported
+   * error made a working sync look broken: three pages had already been read and
+   * written, the fourth asked for a new tx a moment too early.
+   *
+   * Two retries with a growing pause is enough to clear a 1-second window and
+   * keeps the worst case bounded at ~2s per page.
+   */
+  let res: Response | null = null;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    res = await fetch(ENDPOINT, {
+      method: "POST",
+      headers: {
+        "x-api-key": key,
+        "content-type": "application/json",
+        // Cloudflare in front of Tatum answers 403 "error code: 1010" to Node's
+        // default user agent. Without this every call dies at the edge.
+        "user-agent":
+          "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36",
+      },
+      body: JSON.stringify({ query, variables }),
+      cache: "no-store",
+    });
+    if (res.status !== 429) break;
+    await new Promise((r) => setTimeout(r, 600 * (attempt + 1)));
+  }
+
+  if (!res) throw new Error("tatum: no response");
 
   if (!res.ok) {
     const body = (await res.text()).slice(0, 240);
@@ -174,9 +190,9 @@ export type RawTx = {
 };
 
 const HISTORY = `
-  query History($addr: SuiAddress!, $n: Int!, $after: String) {
-    transactions(first: $n, filter: { affectedAddress: $addr }, after: $after) {
-      pageInfo { hasNextPage endCursor }
+  query History($addr: SuiAddress!, $n: Int!, $before: String) {
+    transactions(last: $n, before: $before, filter: { affectedAddress: $addr }) {
+      pageInfo { hasPreviousPage startCursor }
       nodes {
         digest
         effects {
@@ -197,27 +213,38 @@ const HISTORY = `
 
 export type HistoryPage = {
   transactions: RawTx[];
-  hasNextPage: boolean;
-  endCursor: string | null;
+  hasPreviousPage: boolean;
+  startCursor: string | null;
 };
 
-/** One page of an address's transaction history — 1 call, ~2 credits. */
+/**
+ * One page of an address's transaction history — 1 call, ~2 credits.
+ *
+ * Pages walk BACKWARDS from the newest transaction, with `last` + `before`.
+ *
+ * The obvious version — `first: n, after: cursor` — is wrong here, and wrong in
+ * a way that looks correct on a quiet wallet: Tatum orders this connection
+ * oldest-first, so `first` returns the start of an account's history. A wallet
+ * with more than four pages of transactions would sync its oldest eighty and
+ * never see today's spending. The demo wallet had four transactions, so the bug
+ * was invisible until a busier wallet was tried.
+ */
 export async function historyPage(
   address: string,
   limit = 20,
-  after: string | null = null,
+  before: string | null = null,
 ): Promise<HistoryPage> {
   const data = await gql<{
     transactions: {
-      pageInfo: { hasNextPage: boolean; endCursor: string | null } | null;
+      pageInfo: { hasPreviousPage: boolean; startCursor: string | null } | null;
       nodes: RawTx[];
     };
-  }>(HISTORY, { addr: address, n: Math.min(Math.max(limit, 1), 50), after }, "history");
+  }>(HISTORY, { addr: address, n: Math.min(Math.max(limit, 1), 50), before }, "history");
 
   return {
     transactions: data.transactions.nodes ?? [],
-    hasNextPage: Boolean(data.transactions.pageInfo?.hasNextPage),
-    endCursor: data.transactions.pageInfo?.endCursor ?? null,
+    hasPreviousPage: Boolean(data.transactions.pageInfo?.hasPreviousPage),
+    startCursor: data.transactions.pageInfo?.startCursor ?? null,
   };
 }
 

@@ -243,7 +243,16 @@ export type PayLine = {
   amount: number;
   symbol: string;
   to: string;
+  /** What was bought, in words: `merchant:Coffee Shop`. */
   for: string;
+  /**
+   * The merchant address the label belongs to.
+   *
+   * Without this the payment log could not be joined back to the spend lines it
+   * explains, and every "paid" badge would need fuzzy string matching on a
+   * truncated address.
+   */
+  target: string;
   at: string;
 };
 
@@ -256,6 +265,7 @@ export function encodePay(p: PayLine): string {
     `sym=${p.symbol}`,
     `to=${clean(p.to)}`,
     `for=${clean(p.for, 60)}`,
+    `target=${clean(p.target ?? "")}`,
     `at=${p.at}`,
   ].join("|");
 }
@@ -271,6 +281,7 @@ export function decodePay(line: string): PayLine | null {
     symbol: f.sym || "USDC",
     to: f.to || "",
     for: f.for || "",
+    target: f.target || "",
     at: f.at || "",
   };
 }
