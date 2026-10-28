@@ -168,12 +168,22 @@ export function TransactionRow({
           </Button>
         )}
 
+        {/*
+          On a row that needs a label, the free option is always visible. It used
+          to appear on hover only, which left the paid button as the single thing
+          on screen — the hierarchy said "pay" to every reader who never hovered.
+          Rows that already have a label keep the hover reveal, because there
+          Correct is cleanup rather than a choice.
+        */}
         <Button
           variant="outline"
           size="sm"
           disabled={busy || buying}
           onClick={() => onCorrect(row)}
-          className={cn("reveal text-zinc-600 dark:text-zinc-300", needsLabel && "hidden sm:inline-flex")}
+          className={cn(
+            "text-zinc-600 dark:text-zinc-300",
+            !needsLabel && "reveal",
+          )}
         >
           {busy ? "saving…" : "Correct"}
         </Button>
