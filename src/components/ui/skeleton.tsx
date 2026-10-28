@@ -30,7 +30,7 @@ export function TransactionSkeleton() {
 
 export function RuleSkeleton() {
   return (
-    <div className="rounded-xl border border-zinc-200/70 p-3.5 pl-4 dark:border-zinc-800">
+    <div className="rounded-xl border border-zinc-200/70 p-4 pl-5 dark:border-zinc-800">
       <div className="flex items-start justify-between">
         <div className="space-y-2">
           <Skeleton className="h-3.5 w-28" />

@@ -24,7 +24,7 @@ export function EmptyState({
         <Icon className="size-5" />
       </div>
       <h3 className="mt-4 text-sm font-semibold text-zinc-900 dark:text-zinc-100">{title}</h3>
-      <p className="mx-auto mt-1.5 max-w-sm text-sm leading-relaxed text-zinc-500 dark:text-zinc-400">
+      <p className="mx-auto mt-1.5 max-w-sm text-sm leading-relaxed text-zinc-600 dark:text-zinc-400">
         {description}
       </p>
       {children && <div className="mt-5 flex justify-center">{children}</div>}

@@ -51,14 +51,14 @@ export function TransactionRow({
   const valued = row.corrected || learned || paidLookup;
 
   return (
-    <div className="group flex items-center gap-3 px-4 py-3.5 transition-colors duration-150 ease-[var(--ease-out)] hover:bg-zinc-50/80 sm:gap-4 sm:px-5 dark:hover:bg-zinc-800/30">
+    <div className="group flex items-center gap-3 px-4 py-4 transition-colors duration-150 ease-[var(--ease-out)] hover:bg-zinc-50/80 sm:gap-4 sm:px-6 sm:py-5 dark:hover:bg-zinc-800/30">
       <span className="grid size-9 shrink-0 place-items-center rounded-full border border-zinc-200/70 bg-zinc-50 text-zinc-500 sm:size-10 dark:border-zinc-800 dark:bg-zinc-800/50 dark:text-zinc-400">
         <Icon className="size-4" />
       </span>
 
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2">
-          <span className="truncate text-sm font-medium text-zinc-900 dark:text-zinc-100">
+          <span className="truncate text-sm font-semibold text-zinc-900 dark:text-zinc-100">
             {row.label ?? (isFee ? "Network fee" : shortAddress(row.to))}
           </span>
           {row.corrected ? (
@@ -113,10 +113,10 @@ export function TransactionRow({
         </Badge>
 
         <div className="hidden w-24 text-right sm:block sm:w-28">
-          <div className="text-sm font-medium tabular-nums text-zinc-900 dark:text-zinc-100">
+          <div className="text-sm font-semibold tabular-nums text-zinc-900 dark:text-zinc-100">
             {formatAmount(row.amount, row.symbol)}
           </div>
-          <div className="text-[11px] text-zinc-400 dark:text-zinc-600">
+          <div className="text-[11px] text-zinc-500 dark:text-zinc-500">
             {row.corrected
               ? "you set this"
               : paidLookup
@@ -130,10 +130,14 @@ export function TransactionRow({
         </div>
 
         {/* The action a judge needs to find without being told where it is. */}
+        {/* Two different things, two different weights. The paid action is solid
+            and bold because it spends money; the free action is an outline so it
+            reads as the safe, reversible one. */}
         {needsLabel && (
           <Button
             variant="emerald"
             size="sm"
+            className="font-semibold shadow-sm shadow-emerald-600/25"
             disabled={busy || buying || Boolean(pausedReason)}
             onClick={() => onBuy(row)}
             title={
@@ -169,7 +173,7 @@ export function TransactionRow({
           size="sm"
           disabled={busy || buying}
           onClick={() => onCorrect(row)}
-          className={cn("reveal", needsLabel && "hidden sm:inline-flex")}
+          className={cn("reveal text-zinc-600 dark:text-zinc-300", needsLabel && "hidden sm:inline-flex")}
         >
           {busy ? "saving…" : "Correct"}
         </Button>

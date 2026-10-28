@@ -344,7 +344,7 @@ export default function Page() {
         <div className="mb-7 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
           <div>
             <h1 className="text-2xl font-semibold tracking-tight">Overview</h1>
-            <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
+            <p className="mt-1.5 text-sm text-zinc-600 dark:text-zinc-400">
               {wallet
                 ? "Your ledger lives in Walrus Memory, not in our database."
                 : "Connect a Sui wallet to read its spending history."}
@@ -385,17 +385,19 @@ export default function Page() {
         )}
 
         {/* Summary row */}
-        <div className="mb-6 grid gap-4 sm:grid-cols-3">
+        <div className="mb-8 grid gap-5 sm:grid-cols-3">
           <SummaryCard
             label="Balance"
-            value={loading ? "—" : `${balanceValue} ${balanceSymbol}`}
+            value={`${balanceValue} ${balanceSymbol}`}
+            loading={loading}
             hint={loading ? "reading memory…" : wallet ? shortAddress(wallet, 8, 6) : "no wallet connected"}
             icon={Wallet}
             className="enter enter-1"
           />
           <SummaryCard
             label="Monthly spend"
-            value={loading ? "—" : month ? formatAmount(month.total, month.symbol) : "—"}
+            value={month ? formatAmount(month.total, month.symbol) : "—"}
+            loading={loading}
             hint={
               month
                 ? `${ledger?.totals.rows ?? 0} lines · ${month.month}`
@@ -406,7 +408,8 @@ export default function Page() {
           />
           <SummaryCard
             label="Learned rules"
-            value={loading ? "—" : String(ledger?.totals.learnedRules ?? 0)}
+            value={String(ledger?.totals.learnedRules ?? 0)}
+            loading={loading}
             hint={
               ledger?.pays.some((p) => !p.voided)
                 ? `${ledger.pays.filter((p) => !p.voided).length} bought by the agent`
@@ -422,16 +425,16 @@ export default function Page() {
           />
         </div>
 
-        <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_380px]">
+        <div className="grid items-start gap-7 lg:grid-cols-[minmax(0,1fr)_380px]">
           {/* Feed */}
           <Card className="overflow-hidden">
-            <div className="flex items-center justify-between border-b border-zinc-200/80 px-5 py-4 dark:border-zinc-800/80">
+            <div className="flex items-center justify-between border-b border-zinc-200/80 px-6 py-5 dark:border-zinc-800/80">
               <div className="flex items-center gap-2">
-                <Receipt className="size-4 text-zinc-400" />
+                <Receipt className="size-4 text-zinc-500 dark:text-zinc-400" />
                 <h2 className="text-sm font-semibold">Transactions</h2>
                 <Badge variant="muted">{ledger?.spends.length ?? 0}</Badge>
               </div>
-              <span className="text-xs text-zinc-500 dark:text-zinc-500">
+              <span className="text-xs text-zinc-600 dark:text-zinc-400">
                 {ledger?.totals.uncategorized ?? 0} uncategorised
               </span>
             </div>
@@ -500,14 +503,14 @@ export default function Page() {
           {/* Rules + agent sidebar */}
           <div className="flex flex-col gap-6 lg:sticky lg:top-24">
             <Card className="overflow-hidden">
-              <div className="border-b border-zinc-200/80 px-5 py-4 dark:border-zinc-800/80">
+              <div className="border-b border-zinc-200/80 px-6 py-5 dark:border-zinc-800/80">
                 <div className="flex items-center gap-2">
                   <span className="grid size-6 place-items-center rounded-md bg-emerald-50 text-emerald-600 dark:bg-emerald-500/10 dark:text-emerald-400">
                     <Sparkles className="size-3.5" />
                   </span>
                   <h2 className="text-sm font-semibold">Learned rules</h2>
                 </div>
-                <p className="mt-1.5 text-xs leading-relaxed text-zinc-500 dark:text-zinc-400">
+                <p className="mt-2 text-xs leading-relaxed text-zinc-600 dark:text-zinc-400">
                   Each rule is a line in Walrus Memory. Evidence is how many of your corrections
                   agreed; a paid rule shows what the agent spent instead.
                 </p>
@@ -515,13 +518,13 @@ export default function Page() {
 
               <div className="p-4">
                 {loading ? (
-                  <div className="space-y-2.5">
+                  <div className="space-y-3">
                     {Array.from({ length: 3 }).map((_, i) => (
                       <RuleSkeleton key={i} />
                     ))}
                   </div>
                 ) : ledger && ledger.rules.length > 0 ? (
-                  <div className="space-y-2.5">
+                  <div className="space-y-3">
                     {ledger.rules.slice(0, 8).map((r) => (
                       <LearnedRuleItem
                         key={`${r.target}-${r.category}`}
@@ -541,9 +544,9 @@ export default function Page() {
                 )}
               </div>
 
-              <div className="border-t border-zinc-200/80 px-5 py-4 dark:border-zinc-800/80">
+              <div className="border-t border-zinc-200/80 px-6 py-5 dark:border-zinc-800/80">
                 <div className="flex items-baseline justify-between">
-                  <span className="text-xs font-medium text-zinc-500 dark:text-zinc-400">
+                  <span className="text-xs font-medium text-zinc-600 dark:text-zinc-400">
                     Generalisation
                   </span>
                   <span className="text-sm font-semibold tabular-nums text-emerald-600 dark:text-emerald-400">
@@ -552,7 +555,7 @@ export default function Page() {
                     {pct(ledger?.learning.after ?? 0)}
                   </span>
                 </div>
-                <p className="mt-1.5 text-[11px] leading-relaxed text-zinc-500 dark:text-zinc-500">
+                <p className="mt-2 text-[11px] leading-relaxed text-zinc-600 dark:text-zinc-400">
                   Scored only on lines you never corrected, from merchants you did label.{" "}
                   {ledger?.learning.heldOut ?? 0} held-out line
                   {(ledger?.learning.heldOut ?? 0) === 1 ? "" : "s"}.
@@ -569,7 +572,7 @@ export default function Page() {
           </div>
         </div>
 
-        <footer className="mt-10 flex flex-col gap-1 text-[11px] leading-relaxed text-zinc-400 dark:text-zinc-600">
+        <footer className="mt-12 flex flex-col gap-1.5 text-[11px] leading-relaxed text-zinc-500 dark:text-zinc-400">
           <p>
             Ledger lines are immutable. A correction is appended, never written over the
             observation, so the app can always show what it thought before you taught it otherwise.
