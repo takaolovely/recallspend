@@ -30,6 +30,8 @@ export type PayRow = {
   for: string;
   /** Merchant address the label belongs to, so a payment can be joined to rows. */
   target?: string;
+  /** True when the label bought here was later retracted as fabricated. */
+  voided?: boolean;
   at: string;
 };
 

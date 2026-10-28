@@ -346,11 +346,13 @@ export default function Page() {
             label="Learned rules"
             value={loading ? "—" : String(ledger?.totals.learnedRules ?? 0)}
             hint={
-              ledger?.pays.length
-                ? `${ledger.pays.length} bought by the agent`
-                : ledger?.totals.corrected
-                  ? `from ${ledger.totals.corrected} correction${ledger.totals.corrected === 1 ? "" : "s"}`
-                  : "correct or buy a label"
+              ledger?.pays.some((p) => !p.voided)
+                ? `${ledger.pays.filter((p) => !p.voided).length} bought by the agent`
+                : ledger?.pays.length
+                  ? "retracted: the label was fabricated"
+                  : ledger?.totals.corrected
+                    ? `from ${ledger.totals.corrected} correction${ledger.totals.corrected === 1 ? "" : "s"}`
+                    : "correct or buy a label"
             }
             icon={BrainCircuit}
             tone="emerald"

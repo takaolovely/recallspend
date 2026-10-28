@@ -20,6 +20,7 @@ import {
   decodePay,
   decodeRule,
   decodeSpend,
+  decodeVoid,
   rememberFix,
   rememberRule,
   rememberSpend,
@@ -29,6 +30,7 @@ import {
   type PayLine,
   type RuleLine,
   type SpendLine,
+  type VoidLine,
 } from "./memory";
 import { coinInfo, historyPage, type RawTx } from "./tatum";
 import { decide, holdoutScore, rulesFor, type Category } from "./classify";
@@ -53,7 +55,7 @@ export type SpendRow = {
 export type Ledger = {
   wallet: string;
   spends: SpendRow[];
-  pays: PayLine[];
+  pays: Array<PayLine & { voided?: boolean }>;
   rules: RuleLine[];
   budgets: BudgetLine[];
   totals: {
@@ -273,21 +275,33 @@ export async function loadLedger(wallet: string): Promise<Ledger> {
 
   const fixes = ledgerLines.map(decodeFix).filter((f): f is FixLine => Boolean(f)).filter((f) => f.wallet === w);
   const pays = ledgerLines.map(decodePay).filter((p): p is PayLine => Boolean(p)).filter((p) => p.wallet === w);
+  const voids = ledgerLines.map(decodeVoid).filter((v): v is VoidLine => Boolean(v)).filter((v) => v.wallet === w);
   const rules = ruleLines.map(decodeRule).filter((r): r is RuleLine => Boolean(r)).filter((r) => r.wallet === w);
   const budgets = ruleLines
     .map(decodeBudget)
     .filter((b): b is BudgetLine => Boolean(b))
     .filter((b) => b.wallet === w);
 
+  /**
+   * Retracted labels. A void line overrules a rule without deleting it, so the
+   * app stops claiming a merchant name it no longer has evidence for — while the
+   * purchase and the retraction both stay readable in order.
+   */
+  const voided = new Set(voids.map((v) => v.target.toLowerCase()));
+  const liveRules = rules.filter((r) => !voided.has(r.target.toLowerCase()));
+  const markedPays: Array<PayLine & { voided?: boolean }> = pays.map((p) =>
+    p.target && voided.has(p.target.toLowerCase()) ? { ...p, voided: true } : p,
+  );
+
   // Latest fix per spend line wins.
   const fixById = new Map<string, FixLine>();
   for (const f of fixes.sort((a, b) => (a.at < b.at ? -1 : 1))) fixById.set(f.id, f);
 
-  const rulesAfter = rules;
+  const rulesAfter = liveRules;
   // "Before" = rules that existed before the first correction. Approximated
   // honestly: a rule created at the same instant as the first fix is excluded.
   const firstFix = fixes.length ? fixes.map((f) => f.at).sort()[0] : null;
-  const rulesBefore = firstFix ? rules.filter((r) => r.at < firstFix) : [];
+  const rulesBefore = firstFix ? liveRules.filter((r) => r.at < firstFix) : [];
 
   const spends: SpendRow[] = spendLines.map((s) => {
     const fix = fixById.get(s.id);
@@ -306,7 +320,7 @@ export async function loadLedger(wallet: string): Promise<Ledger> {
       to: s.to,
       amount: s.amount,
       wallet: w,
-      rules,
+      rules: liveRules,
       label: s.label,
       fallback: s.symbol === "SUI" && s.to === "—" ? "Fees" : "Uncategorized",
     });
@@ -335,8 +349,8 @@ export async function loadLedger(wallet: string): Promise<Ledger> {
    * this product makes that no other spending tracker can.
    */
   const paidBy = new Map<string, PayLine>();
-  for (const p of pays) {
-    if (p.target) paidBy.set(p.target.toLowerCase(), p);
+  for (const p of markedPays) {
+    if (p.target && !p.voided) paidBy.set(p.target.toLowerCase(), p);
   }
   for (const s of spends) {
     const hit = paidBy.get(s.to.toLowerCase());
@@ -359,14 +373,14 @@ export async function loadLedger(wallet: string): Promise<Ledger> {
   return {
     wallet: w,
     spends,
-    pays,
-    rules: rulesFor(w, rules),
+    pays: markedPays,
+    rules: rulesFor(w, liveRules),
     budgets,
     totals: {
       rows: spends.length,
       corrected: spends.filter((s) => s.corrected).length,
       uncategorized: spends.filter((s) => s.category === "Uncategorized").length,
-      learnedRules: rulesFor(w, rules).length,
+      learnedRules: rulesFor(w, liveRules).length,
       memories: ledgerLines.length + ruleLines.length,
     },
     months,

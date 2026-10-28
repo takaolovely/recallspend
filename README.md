@@ -243,10 +243,18 @@ curl -s https://recallspend.vercel.app/api/health
   and filter client-side.
 - Merchant labels are only as good as the corrections behind them. An address
   nobody has labelled returns `known: false` for free.
-- The seed directory is **demo data**. Four addresses are labelled in code so the
+- The seed directory is **demo data**. Three addresses are labelled in code so the
   market is not empty on day one; the UI says `seed directory` next to them so
   nobody mistakes a seed for a user correction. A real correction always outranks
   a seed.
+- **A seed may only describe an address this project created.** An earlier version
+  seeded a "Coffee Shop" label onto an address that appeared in a real user's
+  transfer history. The app then printed a merchant name nobody had verified on
+  top of that person's actual spending. It was caught by the wallet's owner, not
+  by a test. The label is retracted with a `void` line (`src/lib/memory.ts`), the
+  rule disappears from the read model, and the payment stays in the log marked
+  `retracted` — memory is append-only, so the mistake is documented rather than
+  erased.
 - One line in the first wallet's payment log has **no digest**. It was written
   before the receipt parser was fixed, and memory is append-only, so it stays as
   evidence of the bug rather than being quietly rewritten.

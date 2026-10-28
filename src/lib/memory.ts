@@ -287,6 +287,51 @@ export function decodePay(line: string): PayLine | null {
 }
 
 /* ------------------------------------------------------------------ */
+/* Retraction                                                          */
+/* ------------------------------------------------------------------ */
+
+/**
+ * A label that was bought and then found to be wrong.
+ *
+ * Memory is append-only, so this does not delete the rule — it overrules it. The
+ * observation, the payment and the retraction all stay readable, in the order
+ * they happened, which is the only way a reader can tell what the app believed
+ * and why it stopped believing it.
+ *
+ * This exists because a seeded demo label was applied to a real wallet's real
+ * transaction. The honest repair is not to rewrite the ledger, it is to write
+ * down that the label was fabricated.
+ */
+export type VoidLine = {
+  wallet: string;
+  target: string;
+  reason: string;
+  at: string;
+};
+
+export function encodeVoid(v: VoidLine): string {
+  return [
+    "void",
+    `wallet=${v.wallet}`,
+    `target=${clean(v.target)}`,
+    `reason=${clean(v.reason, 60)}`,
+    `at=${v.at}`,
+  ].join("|");
+}
+
+export function decodeVoid(line: string): VoidLine | null {
+  if (!String(line).trim().startsWith("void|")) return null;
+  const f = fields(line);
+  if (!f.target) return null;
+  return {
+    wallet: f.wallet || "",
+    target: f.target || "",
+    reason: f.reason || "",
+    at: f.at || "",
+  };
+}
+
+/* ------------------------------------------------------------------ */
 /* Read cache                                                         */
 /* ------------------------------------------------------------------ */
 
@@ -325,7 +370,7 @@ export async function allLedgerLines(limit = 400): Promise<string[]> {
   return recallLines(
     ledger(),
     LEDGER_NS,
-    "spend wallet amount to category fix pay digest correction",
+    "spend wallet amount to category fix pay digest correction void retract reason",
     limit,
   );
 }
@@ -351,6 +396,15 @@ export async function rememberFix(f: FixLine): Promise<WriteResult> {
     // One correction per spend line per moment; re-clicking the same choice is
     // a no-op instead of a second identical memory.
     idempotencyKey: `fix:${f.wallet}:${f.id}:${f.category}`,
+  });
+  invalidate(LEDGER_NS);
+  return { blobId: res.blob_id };
+}
+
+/** Retract a merchant label. Keyed per wallet+target, so it happens once. */
+export async function rememberVoid(v: VoidLine): Promise<WriteResult> {
+  const res = await ledger().rememberAndWait(encodeVoid(v), LEDGER_NS, {
+    idempotencyKey: `void:${v.wallet}:${v.target}`,
   });
   invalidate(LEDGER_NS);
   return { blobId: res.blob_id };

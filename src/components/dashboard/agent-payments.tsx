@@ -110,12 +110,24 @@ export function AgentPayments({
         {pays.length > 0 ? (
           <ul className="divide-y divide-zinc-100 dark:divide-zinc-800/60">
             {pays.slice(0, 6).map((p) => {
-              const merchant = p.target ? labelFor.get(p.target.toLowerCase()) : null;
-              const what = merchant ?? p.for.replace("merchant:", "").replace("label:", "");
+              const voided = Boolean(p.voided);
+              const merchant = !voided && p.target ? labelFor.get(p.target.toLowerCase()) : null;
+              // When a label is retracted, the address is shown instead of the name.
+              // Repeating a merchant name the app has admitted was invented is a
+              // second time telling the reader something untrue.
+              const what = voided
+                ? shortAddress(p.target ?? p.for, 8, 6)
+                : (merchant ?? p.for.replace("merchant:", "").replace("label:", ""));
               return (
                 <li key={p.digest + p.at} className="px-5 py-2.5">
                   <div className="flex items-baseline justify-between gap-2">
-                    <span className="truncate text-xs font-medium text-zinc-900 dark:text-zinc-100">
+                    <span
+                      className={
+                        voided
+                          ? "truncate text-xs font-medium text-zinc-400 line-through dark:text-zinc-600"
+                          : "truncate text-xs font-medium text-zinc-900 dark:text-zinc-100"
+                      }
+                    >
                       {what}
                     </span>
                     <span className="shrink-0 text-xs font-medium tabular-nums text-emerald-600 dark:text-emerald-400">
@@ -123,7 +135,9 @@ export function AgentPayments({
                     </span>
                   </div>
                   <div className="mt-0.5 flex items-center gap-1.5 text-[10px] text-zinc-400">
-                    <span>label bought</span>
+                    <span className={voided ? "text-amber-600 dark:text-amber-400" : ""}>
+                      {voided ? "retracted" : "label bought"}
+                    </span>
                     <span className="text-zinc-300 dark:text-zinc-700">·</span>
                     {p.digest ? (
                       <a
