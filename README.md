@@ -243,10 +243,12 @@ curl -s https://recallspend.vercel.app/api/health
   and filter client-side.
 - Merchant labels are only as good as the corrections behind them. An address
   nobody has labelled returns `known: false` for free.
-- The seed directory is **demo data**. Three addresses are labelled in code so the
+- The seed directory is **demo data**. Five addresses are labelled in code so the
   market is not empty on day one; the UI says `seed directory` next to them so
   nobody mistakes a seed for a user correction. A real correction always outranks
-  a seed.
+  a seed. Two of the five are spares bought with a 0.0015 SUI transfer each so the
+  demo wallet keeps an unbought merchant after a recording, for whoever opens the
+  link next.
 - **A seed may only describe an address this project created.** An earlier version
   seeded a "Coffee Shop" label onto an address that appeared in a real user's
   transfer history. The app then printed a merchant name nobody had verified on
