@@ -18,6 +18,7 @@ import { EmptyState } from "@/components/dashboard/empty-state";
 import { AgentPanel } from "@/components/dashboard/agent-panel";
 import { AgentPayments } from "@/components/dashboard/agent-payments";
 import { CorrectDialog } from "@/components/dashboard/correct-dialog";
+import { BuyProgress, type BuyStep } from "@/components/dashboard/buy-progress";
 import { RuleSkeleton, TransactionSkeleton } from "@/components/ui/skeleton";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -33,6 +34,14 @@ import type { AgentInfo, Balance, Ledger, SpendRow } from "@/lib/types";
  * account and not the app paying itself.
  */
 const DEMO_WALLET = "0xf42e7b60311d13a62c66afa1b8a2b916092572c0be15af6ea2cba931ec83d8ed";
+
+/**
+ * Reserve floor, in USDC. This is not anti-abuse; it is a do-not-run-dry guard.
+ * The demo only works while there are unbought merchants left to click, so the
+ * last 0.08 USDC (eight lookups) is out of reach of the button. Correcting is
+ * unaffected, which is the honest answer anyway when the user knows the merchant.
+ */
+const RESERVE_USDC = 0.08;
 
 type AgentResponse = {
   status: "labelled" | "no_label" | "already" | "unfunded" | "error";
@@ -50,10 +59,15 @@ export default function Page() {
   const [agent, setAgent] = useState<AgentInfo | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [buying, setBuying] = useState<string | null>(null);
+  /** Which row is mid-purchase, and which of the three real stages it is in. */
+  const [buyStage, setBuyStage] = useState<{ id: string; step: BuyStep; digest?: string } | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [target, setTarget] = useState<SpendRow | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [loading, setLoading] = useState(true);
+
+  /** True while the agent cannot afford a lookup without eating the reserve. */
+  const lowReserve = agent ? agent.usdc < RESERVE_USDC : false;
 
   const loadAgent = useCallback(async (fresh = false) => {
     try {
@@ -106,6 +120,9 @@ export default function Page() {
       const json = await res.json();
       if (!res.ok) throw new Error(json.error ?? "sync failed");
       await load(w);
+      // Refresh the payer balance too: a sync is the moment the reader expects
+      // every number on the page to be current, including the reserve state.
+      void loadAgent(true);
       setNotice(
         [
           `${json.written} new ${json.written === 1 ? "line" : "lines"}`,
@@ -156,7 +173,22 @@ export default function Page() {
    */
   const buyLabel = async (row: SpendRow) => {
     if (!wallet) return;
+
+    /**
+     * Reserve guard runs before anything else. The agent wallet holds real
+     * money and this page has no login, but the realistic failure is not abuse:
+     * it is the demo running dry halfway through judging. Below the floor the
+     * button stops; correcting stays open because it costs nothing.
+     */
+    if (lowReserve) {
+      setNotice(
+        `Buying is paused: the agent wallet holds ${agent?.usdc.toFixed(4) ?? "0"} USDC, below the ${RESERVE_USDC.toFixed(2)} USDC reserve kept for this demo. Correcting a merchant is still free.`,
+      );
+      return;
+    }
+
     setBuying(row.id);
+    setBuyStage({ id: row.id, step: 1 });
     setNotice(null);
     const pendingKey = `recallspend:pending:${wallet}:${row.id}`;
     try {
@@ -167,7 +199,27 @@ export default function Page() {
        */
       let digest = localStorage.getItem(pendingKey) ?? "";
 
+      if (digest) {
+        // Resuming past the payment. Saying "paying" again would be a lie.
+        setBuyStage({ id: row.id, step: 3, digest });
+      }
+
       if (!digest) {
+        /**
+         * Free preflight, before any money moves. This is what makes step 2
+         * honest: the label is "Paying" only after the seller has confirmed an
+         * answer exists, so no USDC is committed to an empty lookup.
+         */
+        const pre = await fetch(`/api/enrich/preview?address=${encodeURIComponent(row.to)}`, {
+          cache: "no-store",
+        });
+        const known = pre.ok ? ((await pre.json()) as { known?: boolean }) : { known: true };
+        if (known.known === false) {
+          setNotice("Nothing was charged. The seller has no label for this merchant.");
+          return;
+        }
+
+        setBuyStage({ id: row.id, step: 2 });
         const res = await fetch("/api/agent", {
           method: "POST",
           headers: { "content-type": "application/json" },
@@ -194,6 +246,7 @@ export default function Page() {
 
         digest = json.digest;
         localStorage.setItem(pendingKey, digest);
+        setBuyStage({ id: row.id, step: 3, digest });
         setNotice(
           `Paid ${json.price ?? "0.01"} USDC → “${json.profile?.label}”. Writing it to Walrus Memory…`,
         );
@@ -253,6 +306,7 @@ export default function Page() {
       }
     } finally {
       setBuying(null);
+      setBuyStage(null);
     }
   };
 
@@ -322,6 +376,14 @@ export default function Page() {
           </div>
         )}
 
+        {buyStage && (
+          <BuyProgress
+            step={buyStage.step}
+            digest={buyStage.digest}
+            price={agent?.price ?? "0.01"}
+          />
+        )}
+
         {/* Summary row */}
         <div className="mb-6 grid gap-4 sm:grid-cols-3">
           <SummaryCard
@@ -374,6 +436,16 @@ export default function Page() {
               </span>
             </div>
 
+            {lowReserve && (
+              <div className="border-b border-amber-200/70 bg-amber-50/70 px-5 py-2.5 text-[11px] leading-relaxed text-amber-800 dark:border-amber-500/20 dark:bg-amber-500/5 dark:text-amber-300">
+                Reserve floor reached: the agent wallet holds{" "}
+                <span className="font-mono tabular-nums">{agent?.usdc.toFixed(4)} USDC</span>, below the{" "}
+                {RESERVE_USDC.toFixed(2)} USDC kept aside so this demo still has labels to sell.{" "}
+                <span className="font-medium">“Get label” is disabled.</span> Correcting a merchant is
+                free and still works.
+              </div>
+            )}
+
             {loading ? (
               <div className="divide-y divide-zinc-100 dark:divide-zinc-800/60">
                 {Array.from({ length: 6 }).map((_, i) => (
@@ -408,6 +480,12 @@ export default function Page() {
                     row={row}
                     busy={busy === row.id}
                     buying={buying === row.id}
+                    stage={buyStage?.id === row.id ? buyStage.step : null}
+                    pausedReason={
+                      lowReserve
+                        ? `Buying paused: the agent wallet is below the ${RESERVE_USDC.toFixed(2)} USDC reserve kept for this demo. Correcting is free and still works.`
+                        : null
+                    }
                     onBuy={buyLabel}
                     onCorrect={(r) => {
                       setTarget(r);
@@ -486,6 +564,7 @@ export default function Page() {
               agent={agent}
               pays={ledger?.pays ?? []}
               rules={ledger?.rules ?? []}
+              reserve={RESERVE_USDC}
             />
           </div>
         </div>

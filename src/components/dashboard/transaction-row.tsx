@@ -27,12 +27,18 @@ export function TransactionRow({
   row,
   busy,
   buying,
+  stage,
+  pausedReason,
   onBuy,
   onCorrect,
 }: {
   row: Row;
   busy: boolean;
   buying: boolean;
+  /** 1 checking, 2 paying, 3 writing — the button says which one, not just "Paying…". */
+  stage?: 1 | 2 | 3 | null;
+  /** Set when the agent reserve floor is reached, so the button explains itself. */
+  pausedReason?: string | null;
   onBuy: (row: Row) => void;
   onCorrect: (row: Row) => void;
 }) {
@@ -128,12 +134,27 @@ export function TransactionRow({
           <Button
             variant="emerald"
             size="sm"
-            disabled={busy || buying}
+            disabled={busy || buying || Boolean(pausedReason)}
             onClick={() => onBuy(row)}
-            title="The agent pays 0.01 USDC on Sui for this merchant's name, then writes it to Walrus Memory."
+            title={
+              pausedReason ??
+              "The agent pays 0.01 USDC on Sui for this merchant's name, then writes it to Walrus Memory."
+            }
           >
             {buying ? (
-              "Paying…"
+              stage === 1 ? (
+                "Checking…"
+              ) : stage === 3 ? (
+                "Writing…"
+              ) : (
+                "Paying…"
+              )
+            ) : pausedReason ? (
+              <>
+                <Zap className="size-3.5" />
+                <span className="hidden sm:inline">Reserve floor</span>
+                <span className="sm:hidden">Low</span>
+              </>
             ) : (
               <>
                 <Zap className="size-3.5" />

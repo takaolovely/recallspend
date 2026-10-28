@@ -259,7 +259,18 @@ curl -s https://recallspend.vercel.app/api/health
   before the receipt parser was fixed, and memory is append-only, so it stays as
   evidence of the bug rather than being quietly rewritten.
 - A purchase takes 40-70 seconds end to end: ~20s to settle on Sui, then 20-40s
-  for the relayer. The UI narrates both steps instead of showing a spinner.
+  for the relayer. The UI narrates three real stages — `Checking merchant…`
+  (the free preflight, before any money moves), `Paying 0.01 USDC…` (Sui
+  settlement), `Writing to memory…` (the relayer) — and prints the settlement
+  digest as soon as it exists. The stage changes follow actual responses, not a
+  timer, so the bar cannot claim progress that did not happen.
+- The agent wallet holds real USDC and the page has no login. That is not a
+  security problem worth a wall in a hackathon; it is a way to kill the demo.
+  So the last **0.08 USDC (eight lookups)** is off limits: below that floor the
+  `Get label` button is disabled and says why, while `Correct` keeps working
+  because a correction costs nothing and is the better answer when the user
+  already knows the merchant. No per-address cap: capping per address would have
+  blocked the largest wallet first, which is the demo wallet itself.
 - The demo wallet (`0xf42e7b…8ed`) is a throwaway key funded from the agent. Its
   transactions are real, its merchant labels are seeded, and it exists so the
   payer in the panel is visibly a different account from the user.
