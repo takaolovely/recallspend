@@ -8,9 +8,9 @@ import { cn } from "@/lib/utils";
  * claim the page does not back up below.
  */
 const STEPS: Array<{ n: string; title: string; body: string }> = [
-  { n: "1", title: "Sync", body: "Sui history via Tatum" },
-  { n: "2", title: "Teach", body: '“Get label · 0.01 USDC” (agent pays) or “Correct”' },
-  { n: "3", title: "Verify", body: "Learned rules & Ask memory update" },
+  { n: "1", title: "Sync", body: "read your Sui history via Tatum" },
+  { n: "2", title: "Teach", body: "“Get label · 0.01 USDC” lets the agent pay, or “Correct” it yourself" },
+  { n: "3", title: "Verify", body: "watch Learned rules and Ask update" },
 ];
 
 export function JudgeGuide({ className }: { className?: string }) {
@@ -24,7 +24,7 @@ export function JudgeGuide({ className }: { className?: string }) {
     >
       <div className="flex flex-col gap-1.5 sm:flex-row sm:items-center sm:gap-5">
         <span className="text-[10px] font-semibold uppercase tracking-[0.08em] text-emerald-900 dark:text-emerald-300">
-          Judge’s guide
+          How it works
         </span>
 
         <ol className="flex flex-col gap-1 sm:flex-row sm:items-center sm:gap-5">
