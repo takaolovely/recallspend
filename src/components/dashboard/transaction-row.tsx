@@ -106,13 +106,23 @@ export function TransactionRow({
         </div>
       </div>
 
-      <div className="flex shrink-0 items-center gap-2 sm:gap-3">
-        <Badge variant={valued ? "emerald" : "default"} className="hidden sm:inline-flex">
-          <span className={cn("size-1.5 rounded-full", meta.dot)} />
-          {row.category}
-        </Badge>
+      {/*
+        Fixed columns, so the amount lines up on every row. The category badge is
+        the widest variable on the row ("Uncategorized" vs "Fees"), and the action
+        block was 70px on a labelled row and 197px on one that needs a label —
+        both pushed the amount sideways. Each column now has a width, and the
+        labelled rows carry an equally placed secondary action instead of leaving
+        a hole where the buttons are on the row above.
+      */}
+      <div className="flex shrink-0 items-center gap-2 sm:gap-3 xl:w-[465px] xl:justify-end">
+        <div className="hidden w-[96px] shrink-0 justify-end sm:flex">
+          <Badge variant={valued ? "emerald" : "default"}>
+            <span className={cn("size-1.5 rounded-full", meta.dot)} />
+            {row.category}
+          </Badge>
+        </div>
 
-        <div className="hidden w-24 text-right sm:block sm:w-28">
+        <div className="hidden w-[88px] shrink-0 text-right sm:block">
           <div className="text-sm font-semibold tabular-nums text-zinc-900 dark:text-zinc-100">
             {formatAmount(row.amount, row.symbol)}
           </div>
@@ -129,64 +139,75 @@ export function TransactionRow({
           </div>
         </div>
 
-        {/* The action a judge needs to find without being told where it is. */}
-        {/* Two different things, two different weights. The paid action is solid
-            and bold because it spends money; the free action is an outline so it
-            reads as the safe, reversible one. */}
-        {needsLabel && (
-          <Button
-            variant="emerald"
-            size="sm"
-            className="font-semibold shadow-sm shadow-emerald-600/25"
-            disabled={busy || buying || Boolean(pausedReason)}
-            onClick={() => onBuy(row)}
-            title={
-              pausedReason ??
-              "The agent pays 0.01 USDC on Sui for this merchant's name, then writes it to Walrus Memory."
-            }
-          >
-            {buying ? (
-              stage === 1 ? (
-                "Checking…"
-              ) : stage === 3 ? (
-                "Writing…"
+        <div className="flex shrink-0 items-center gap-2 xl:w-[269px] xl:justify-end">
+          {/* Two different things, two different weights. The paid action is solid
+              and bold because it spends money; the free action is an outline so it
+              reads as the safe, reversible one. */}
+          {needsLabel && (
+            <Button
+              variant="emerald"
+              size="sm"
+              className="font-semibold shadow-sm shadow-emerald-600/25"
+              disabled={busy || buying || Boolean(pausedReason)}
+              onClick={() => onBuy(row)}
+              title={
+                pausedReason ??
+                "The agent pays 0.01 USDC on Sui for this merchant's name, then writes it to Walrus Memory."
+              }
+            >
+              {buying ? (
+                stage === 1 ? (
+                  "Checking…"
+                ) : stage === 3 ? (
+                  "Writing…"
+                ) : (
+                  "Paying…"
+                )
+              ) : pausedReason ? (
+                <>
+                  <Zap className="size-3.5" />
+                  <span className="hidden sm:inline">Reserve floor</span>
+                  <span className="sm:hidden">Low</span>
+                </>
               ) : (
-                "Paying…"
-              )
-            ) : pausedReason ? (
-              <>
-                <Zap className="size-3.5" />
-                <span className="hidden sm:inline">Reserve floor</span>
-                <span className="sm:hidden">Low</span>
-              </>
-            ) : (
-              <>
-                <Zap className="size-3.5" />
-                <span className="hidden sm:inline">Get label · </span>0.01 USDC
-              </>
-            )}
-          </Button>
-        )}
-
-        {/*
-          On a row that needs a label, the free option is always visible. It used
-          to appear on hover only, which left the paid button as the single thing
-          on screen — the hierarchy said "pay" to every reader who never hovered.
-          Rows that already have a label keep the hover reveal, because there
-          Correct is cleanup rather than a choice.
-        */}
-        <Button
-          variant="outline"
-          size="sm"
-          disabled={busy || buying}
-          onClick={() => onCorrect(row)}
-          className={cn(
-            "text-zinc-600 dark:text-zinc-300",
-            !needsLabel && "reveal",
+                <>
+                  <Zap className="size-3.5" />
+                  <span className="hidden sm:inline">Get label · </span>0.01 USDC
+                </>
+              )}
+            </Button>
           )}
-        >
-          {busy ? "saving…" : "Correct"}
-        </Button>
+
+          {/*
+            On a row that needs a label, the free option is always visible. It used
+            to appear on hover only, which left the paid button as the single thing
+            on screen — the hierarchy said "pay" to every reader who never hovered.
+            Rows that already have a label keep the hover reveal, because there
+            Correct is cleanup rather than a choice.
+          */}
+          {needsLabel ? (
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={busy || buying}
+              onClick={() => onCorrect(row)}
+              className="text-zinc-600 dark:text-zinc-300"
+            >
+              {busy ? "saving…" : "Correct"}
+            </Button>
+          ) : (
+            <Button
+              variant="ghost"
+              size="sm"
+              disabled={busy || buying}
+              onClick={() => onCorrect(row)}
+              title="Change what this merchant is called, or its category. Free."
+              className="text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100"
+            >
+              {busy ? "saving…" : "Edit"}
+            </Button>
+          )}
+        </div>
       </div>
     </div>
   );

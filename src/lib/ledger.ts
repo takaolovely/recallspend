@@ -352,9 +352,31 @@ export async function loadLedger(wallet: string): Promise<Ledger> {
   for (const p of markedPays) {
     if (p.target && !p.voided) paidBy.set(p.target.toLowerCase(), p);
   }
+
+  /**
+   * Only ONE line per merchant is the purchase's origin: the earliest payment to
+   * that address that already existed when the label was bought. Every later
+   * payment to the same merchant was categorised by the rule, so it is evidence
+   * the rule generalised, not evidence that anyone paid for it. Marking all of
+   * them made a second payment look bought, which zeroed the hold-out score.
+   */
+  const originFor = new Map<string, string>();
+  const ascending = [...spends].sort((a, b) => (a.at < b.at ? -1 : 1));
+  for (const s of ascending) {
+    const key = s.to.toLowerCase();
+    const pay = paidBy.get(key);
+    if (!pay || originFor.has(key)) continue;
+    if (s.at <= pay.at) originFor.set(key, s.id);
+  }
+  // A purchase recorded before its line was synced still has exactly one origin.
+  for (const s of ascending) {
+    const key = s.to.toLowerCase();
+    if (paidBy.has(key) && !originFor.has(key)) originFor.set(key, s.id);
+  }
+
   for (const s of spends) {
     const hit = paidBy.get(s.to.toLowerCase());
-    if (hit) s.paid = hit.digest;
+    if (hit && originFor.get(s.to.toLowerCase()) === s.id) s.paid = hit.digest;
   }
 
   const months = summarise(spends);
@@ -365,6 +387,8 @@ export async function loadLedger(wallet: string): Promise<Ledger> {
       amount: s.amount,
       category: s.category,
       corrected: s.corrected,
+      // The line a label was bought for is an origin, not a held-out test.
+      paid: Boolean(s.paid),
     })),
     rulesBefore,
     rulesAfter,

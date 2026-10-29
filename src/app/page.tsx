@@ -19,6 +19,7 @@ import { AgentPanel } from "@/components/dashboard/agent-panel";
 import { AgentPayments } from "@/components/dashboard/agent-payments";
 import { CorrectDialog } from "@/components/dashboard/correct-dialog";
 import { BuyProgress, type BuyStep } from "@/components/dashboard/buy-progress";
+import { JudgeGuide } from "@/components/dashboard/judge-guide";
 import { RuleSkeleton, TransactionSkeleton } from "@/components/ui/skeleton";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -316,10 +317,18 @@ export default function Page() {
   const balanceValue = usdc ? usdc.amount.toFixed(2) : sui ? sui.amount.toFixed(2) : "0.00";
   const balanceSymbol = usdc ? "USDC" : sui ? "SUI" : "USDC";
 
+  /**
+   * A rule "applied to" a payment only when that payment is a different line
+   * from the one the rule came from. Counting the origin line made the card say
+   * "applied to 1 other payment" while the generalisation score, which correctly
+   * excludes origins, read 0%. The two claims now count the same thing.
+   */
   const coveredByRule = useMemo(() => {
     const map = new Map<string, number>();
     for (const s of ledger?.spends ?? []) {
-      if (s.by === "rule" && !s.corrected) map.set(s.to, (map.get(s.to) ?? 0) + 1);
+      if (s.by === "rule" && !s.corrected && !s.paid) {
+        map.set(s.to, (map.get(s.to) ?? 0) + 1);
+      }
     }
     return map;
   }, [ledger]);
@@ -385,6 +394,7 @@ export default function Page() {
         )}
 
         {/* Summary row */}
+        <JudgeGuide />
         <div className="mb-8 grid gap-5 sm:grid-cols-3">
           <SummaryCard
             label="Balance"
@@ -556,9 +566,9 @@ export default function Page() {
                   </span>
                 </div>
                 <p className="mt-2 text-[11px] leading-relaxed text-zinc-600 dark:text-zinc-400">
-                  Scored only on lines you never corrected, from merchants you did label.{" "}
-                  {ledger?.learning.heldOut ?? 0} held-out line
-                  {(ledger?.learning.heldOut ?? 0) === 1 ? "" : "s"}.
+                  {ledger?.learning.heldOut
+                    ? `Scored only on repeat payments you never corrected, for merchants you labelled or bought a name for. ${ledger.learning.heldOut} held-out line${ledger.learning.heldOut === 1 ? "" : "s"}.`
+                    : "No repeat payment to a known merchant yet, so there is nothing to score. The rules below apply to the line they came from, which is not counted as generalisation."}
                 </p>
               </div>
             </Card>

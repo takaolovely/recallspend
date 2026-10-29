@@ -136,19 +136,39 @@ export function holdoutScore(
     amount: number;
     category: string;
     corrected: boolean;
-    userCategory?: string;
+    /** True when this line's label was bought, so it is an origin, not a test. */
+    paid?: boolean;
   }>,
   rulesBefore: RuleLine[],
   rulesAfter: RuleLine[],
 ): LearningScore {
-  // Merchant -> the category the user gave it (latest correction wins).
+  /**
+   * Two ways a merchant becomes known: the user corrected it, or the agent paid
+   * for its name. Both are labels; ignoring the paid ones made the panel
+   * contradict itself — a rule card could say "applied to 1 other payment" while
+   * the score read 0% because only corrections counted as ground truth.
+   *
+   * The origin line is never part of the hold-out. Scoring the line a rule was
+   * derived from is the circular metric this whole function exists to avoid.
+   */
   const labelledMerchants = new Map<string, string>();
+  for (const r of rows) {
+    if (r.paid && r.to && r.to !== "—" && r.category !== "Uncategorized") {
+      labelledMerchants.set(r.to, r.category);
+    }
+  }
+  // A correction outranks a purchase: it is the wallet owner's own statement.
   for (const r of rows) {
     if (r.corrected && r.to && r.to !== "—") labelledMerchants.set(r.to, r.category);
   }
 
   const heldOut = rows.filter(
-    (r) => !r.corrected && r.to && r.to !== "—" && labelledMerchants.has(r.to),
+    (r) =>
+      !r.corrected &&
+      !r.paid &&
+      r.to &&
+      r.to !== "—" &&
+      labelledMerchants.has(r.to),
   );
 
   let correctBefore = 0;
