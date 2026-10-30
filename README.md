@@ -19,6 +19,24 @@ paste a Sui address  ->  Tatum Sui GraphQL reads the history once
                      ->  every later page load is served from memory, 0 Tatum credits
 ```
 
+## Try it in a minute
+
+```
+1. open the demo wallet            the ledger renders from memory, 0 Tatum calls
+2. pick a row marked Uncategorized either "Correct" (free) or "Get label"
+                                   · 0.01 USDC, the agent pays
+3. watch Learned rules and the Ask box update
+```
+
+`Correct` writes a rule for nothing. `Get label` is the paid path, and the
+panel narrates the three real stages: checking the merchant for free, paying
+0.01 USDC on Sui, then writing to memory. The strip at the top of the page is
+the same three steps, so nobody has to read this file to start.
+
+Then ask the page a question. `why is Grocery Store in Groceries` answers with
+who taught the rule, and `how much did I spend on Groceries` answers with the
+total and the lines behind it.
+
 ## Why this exists
 
 Two problems, one mechanism.
@@ -88,6 +106,7 @@ POST /api/enrich (paid)     -> merchant profile + Payment-Receipt (base64url, .r
 POST /api/agent             -> STEP 1: pays 0.01 USDC, returns label + digest, writes nothing
 POST /api/agent/record      -> STEP 2: proves that digest on Sui, then writes the two lines
 GET  /api/agent/balance     -> the agent's own USDC and SUI, read from chain
+POST /api/ask               -> answers a question from memory, with citations. No model call
 ```
 
 Implemented with `@suimpp/mpp` 0.9.0 (`suiServer` / `sui`) over `mppx` 0.15.0.
@@ -129,6 +148,21 @@ The free preview exists so the agent does not pay for a lookup with no answer.
 It returns `known: true/false` and never the label itself: the answer is what the
 payment buys.
 
+
+## Asking the memory a question
+
+`POST /api/ask` takes a wallet and a question, and answers from the lines
+already in memory. No model call, so no key and no tokens: it matches a small
+set of shapes (why a merchant sits in a category, what a category totals, which
+rules exist, what the ledger looks like overall) and returns `citations` beside
+every answer, so the claim can be checked against the exact lines it used.
+
+The part that has to be right is provenance. A rule can come from a user
+correction or from a label the agent bought, and in memory those two lines look
+identical. The answer is therefore decided by the payment log, not by the rule:
+a payment to that address reads `bought by the agent`, and only the absence of
+one reads `your correction`. Getting this backwards is worse than saying
+nothing, because the claim of the app is that it remembers who taught it what.
 
 ## Cost discipline
 
@@ -230,8 +264,12 @@ Health check with the numbers a judge asks for:
 
 ```bash
 curl -s https://recallspend.vercel.app/api/health
-# {"ok":true,"memories":22,"tatum":{...},"merchant":"0x8fbd…","network":"sui:mainnet"}
+# {"ok":true,"memories":44,"tatum":{"credits":0,"cap":500,...},
+#  "merchant":"0xbc12…","network":"sui:mainnet"}
 ```
+
+`memories` counts every line in the Walrus account and grows with use, so the
+number here is a snapshot rather than a constant.
 
 ## Limits, stated
 
