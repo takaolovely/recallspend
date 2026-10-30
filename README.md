@@ -129,13 +129,17 @@ to the seller of at least 0.01. Memory only receives a merchant label when that
 transfer exists. The claim "this fact was bought" is therefore checkable by
 anyone.
 
-Three settlements on mainnet, all with the same shape:
+### Three settlements on Sui mainnet
 
-```
-0.01 USDC  8Yy3etB3eQw2qoefTyyFrR4oporCKWbjdrxeQuuGDdxn   Coffee Shop
-0.01 USDC  DYASw…j4ES                                      Grocery Store
-0.01 USDC  43wZEK…Ec8D                                     Delivery
-```
+| Amount | Merchant | Transaction |
+|--------|----------|-------------|
+| 0.01 USDC | Coffee Shop | [8Yy3etB3eQw2qoefTyyFrR4oporCKWbjdrxeQuuGDdxn](https://suiscan.xyz/mainnet/tx/8Yy3etB3eQw2qoefTyyFrR4oporCKWbjdrxeQuuGDdxn) |
+| 0.01 USDC | Grocery Store | [DYASwe49x4emmhNKd9SvbWYdxw9rTGnUYwZY3wNJj4ES](https://suiscan.xyz/mainnet/tx/DYASwe49x4emmhNKd9SvbWYdxw9rTGnUYwZY3wNJj4ES) |
+| 0.01 USDC | Delivery | [43wZEK6UorpevmBm2KV4XvGW6rdhVLiwTVXWWLADEc8D](https://suiscan.xyz/mainnet/tx/43wZEK6UorpevmBm2KV4XvGW6rdhVLiwTVXWWLADEc8D) |
+
+All three were sent by the agent's own address, `0x8fbd…37ca`, and each one is
+`SUCCESS` on chain with a 0.01 USDC balance change to the seller.
+
 
 The seller of the label is this app's own directory: labels from corrections other
 wallets already made, plus a small **seed directory** (`src/lib/directory.ts`)
